@@ -18,16 +18,15 @@ export function OrderStatusBanner() {
 
   useEffect(() => {
     console.log('🎨 Banner effect triggered:', {
-      activeOrder: activeOrder?._id,
+      activeOrder: activeOrder?.id,
       status: activeOrder?.order_status,
     });
 
-    // ✅ Match the statuses from OrderTrackingContext
-    const activeStatuses = ['preparing', 'assigned', 'assigning','out_for_delivery', 'arrived'];
+    const activeStatuses = ['preparing', 'assigned', 'assigning','out_for_delivery', 'delivered'];
     const shouldDisplay = activeOrder && activeStatuses.includes(activeOrder.order_status);
     
     console.log('🎨 Should display banner:', shouldDisplay);
-    setShouldShow(shouldDisplay);
+    setShouldShow(!!shouldDisplay);
 
     if (shouldDisplay) {
       console.log('🎨 Animating banner IN');
@@ -57,12 +56,6 @@ export function OrderStatusBanner() {
 
   const getStatusConfig = () => {
     switch (activeOrder.order_status) {
-      case 'confirmed':
-        return {
-          text: 'Order confirmed',
-          icon: 'checkmark-circle' as const,
-          bgColor: '#007AFF',
-        };
       case 'preparing':
         return {
           text: 'Your order is being prepared',
@@ -87,7 +80,7 @@ export function OrderStatusBanner() {
           icon: 'bicycle' as const,
           bgColor: '#FF9500',
         };
-      case 'arrived':
+      case 'delivered':
         return {
           text: 'Your order has arrived! 🎉',
           icon: 'checkmark-circle' as const,
@@ -140,11 +133,9 @@ export function OrderStatusBanner() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    // ✅ Fixed: Position above tab bar
     bottom: Platform.OS === 'ios' ? 45 : 50,
     left: 0,
     right: 0,
-    // ✅ Very high z-index to ensure it's on top
     zIndex: 9999,
     elevation: 10,
     ...Platform.select({

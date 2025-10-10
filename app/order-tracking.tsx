@@ -48,7 +48,6 @@ export default function OrderTrackingScreen() {
       case 'assigned':
       case 'out_for_delivery':
         return '#FF9500';
-      case 'arrived':
       case 'delivered':
         return '#34C759';
       default:
@@ -85,7 +84,6 @@ export default function OrderTrackingScreen() {
       'assigning',
       'assigned',
       'out_for_delivery',
-      'arrived',
       'delivered'
     ];
     
@@ -140,7 +138,7 @@ export default function OrderTrackingScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order #{activeOrder.id?.slice(-6)}</Text>
+        <Text style={styles.headerTitle}>Order #{activeOrder.id || 'Unknown'}</Text>
         <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
           <Ionicons name="refresh" size={24} color="#007AFF" />
         </TouchableOpacity>
@@ -213,7 +211,7 @@ export default function OrderTrackingScreen() {
                       <Text style={styles.ratingText}>
                         {activeOrder.delivery_partner.rating.toFixed(1)}
                       </Text>
-                      {activeOrder.delivery_partner.deliveries && (
+                      {activeOrder.delivery_partner.deliveries && activeOrder.delivery_partner.deliveries > 0 && (
                         <Text style={styles.deliveriesText}>
                           • {activeOrder.delivery_partner.deliveries} deliveries
                         </Text>
@@ -252,31 +250,31 @@ export default function OrderTrackingScreen() {
               <View style={styles.pricingSection}>
                 <View style={styles.pricingRow}>
                   <Text style={styles.pricingLabel}>Subtotal</Text>
-                  <Text style={styles.pricingValue}>₹{activeOrder.subtotal?.toFixed(2)}</Text>
+                  <Text style={styles.pricingValue}>₹{activeOrder.subtotal?.toFixed(2) || '0.00'}</Text>
                 </View>
-                {activeOrder.tax > 0 && (
+                {(activeOrder.tax ?? 0) > 0 && (
                   <View style={styles.pricingRow}>
                     <Text style={styles.pricingLabel}>Tax</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.tax?.toFixed(2)}</Text>
+                    <Text style={styles.pricingValue}>₹{activeOrder.tax?.toFixed(2) || '0.00'}</Text>
                   </View>
                 )}
-                {activeOrder.delivery_charge > 0 && (
+                {(activeOrder.delivery_charge ?? 0) > 0 && (
                   <View style={styles.pricingRow}>
                     <Text style={styles.pricingLabel}>Delivery</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.delivery_charge?.toFixed(2)}</Text>
+                    <Text style={styles.pricingValue}>₹{activeOrder.delivery_charge?.toFixed(2) || '0.00'}</Text>
                   </View>
                 )}
-                {activeOrder.app_fee > 0 && (
+                {(activeOrder.app_fee ?? 0) > 0 && (
                   <View style={styles.pricingRow}>
                     <Text style={styles.pricingLabel}>Service Fee</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.app_fee?.toFixed(2)}</Text>
+                    <Text style={styles.pricingValue}>₹{activeOrder.app_fee?.toFixed(2) || '0.00'}</Text>
                   </View>
                 )}
-                {activeOrder.promo_discount > 0 && (
+                {(activeOrder.promo_discount ?? 0) > 0 && (
                   <View style={styles.pricingRow}>
                     <Text style={[styles.pricingLabel, { color: '#34C759' }]}>Promo Discount</Text>
                     <Text style={[styles.pricingValue, { color: '#34C759' }]}>
-                      -₹{activeOrder.promo_discount?.toFixed(2)}
+                      -₹{activeOrder.promo_discount?.toFixed(2) || '0.00'}
                     </Text>
                   </View>
                 )}
@@ -285,7 +283,7 @@ export default function OrderTrackingScreen() {
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total</Text>
                 <Text style={styles.totalValue}>
-                  ₹{activeOrder.total_amount?.toFixed(2)}
+                  ₹{activeOrder.total_amount?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
@@ -302,12 +300,12 @@ export default function OrderTrackingScreen() {
               activeOrder.delivered_at || getStatusTimestamp('delivered'),
               isStatusCompleted('delivered')
             )}
-            {renderTimelineItem(
+            {/* {renderTimelineItem(
               'arrived',
               'Arrived at location',
               activeOrder.arrived_at || getStatusTimestamp('arrived'),
               isStatusCompleted('arrived')
-            )}
+            )} */}
             {renderTimelineItem(
               'out_for_delivery',
               'Out for delivery',
@@ -329,7 +327,7 @@ export default function OrderTrackingScreen() {
             {renderTimelineItem(
               'confirmed',
               'Order confirmed',
-              activeOrder.confirmed_at || activeOrder.created_at,
+              activeOrder.confirmed_at || activeOrder.created_at || null,
               true
             )}
           </View>

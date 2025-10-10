@@ -37,6 +37,7 @@ interface SavedAddress {
   state: string;
   pincode: string;
   landmark?: string;
+  mobile_number?: string;
   latitude?: number;
   longitude?: number;
   is_default: boolean;
@@ -49,6 +50,7 @@ interface ManualAddressForm {
   state: string;
   pincode: string;
   landmark: string;
+  mobile_number: string;
 }
 
 export default function AddressScreen() {
@@ -76,6 +78,7 @@ export default function AddressScreen() {
     state: '',
     pincode: '',
     landmark: '',
+    mobile_number: '',
   });
   
   // Saved addresses states
@@ -86,6 +89,10 @@ export default function AddressScreen() {
   // General states
   const [loading, setLoading] = useState(false);
   const [currentTab, setCurrentTab] = useState<'saved' | 'search'>('saved');
+  
+  // Editing states
+  const [editingAddress, setEditingAddress] = useState<SavedAddress | null>(null);
+  const [editMode, setEditMode] = useState(false);
 
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -150,7 +157,7 @@ export default function AddressScreen() {
   }, []);
  
 
-  const getAddressFromCoordinates = useCallback(async (lat: number, lng: number) => {
+  const getAddressFromCoordinates = useCallback(async (lat: number, lng: number, fallbackAddress?: string) => {
     try {
       console.log('Starting reverse geocoding for:', lat, lng);
       
@@ -198,20 +205,55 @@ export default function AddressScreen() {
             
             setManualAddress(prev => ({
               ...prev,
-              street: street.trim() || prev.street,
-              city: city || prev.city,
-              state: state || prev.state,
-              pincode: pincode || prev.pincode,
+              street: street.trim() || fallbackAddress || '',
+              city: city || '',
+              state: state || '',
+              pincode: pincode || '',
+            }));
+          }
+        } else {
+          // If reverse geocoding fails but we have a fallback address, populate the form
+          if (fallbackAddress) {
+            const addressParts = fallbackAddress.split(',').map(s => s.trim());
+            setManualAddress(prev => ({
+              ...prev,
+              street: addressParts[0] || fallbackAddress,
+              city: addressParts[1] || '',
+              state: addressParts[2] || '',
+              pincode: addressParts.find(part => /^\d{6}$/.test(part)) || '',
             }));
           }
         }
       } else {
         console.log('Reverse geocode response not OK:', response.status);
+        // Fallback to using the provided address
+        if (fallbackAddress) {
+          const addressParts = fallbackAddress.split(',').map(s => s.trim());
+          setManualAddress(prev => ({
+            ...prev,
+            street: addressParts[0] || fallbackAddress,
+            city: addressParts[1] || '',
+            state: addressParts[2] || '',
+            pincode: addressParts.find(part => /^\d{6}$/.test(part)) || '',
+          }));
+        }
       }
     } catch (error) {
       console.error('Reverse geocoding error:', error);
       // Don't fail, just set a generic address
       setLocationAddress('Location detected - Use search for exact address');
+      
+      // Fallback to using the provided address
+      if (fallbackAddress) {
+        const addressParts = fallbackAddress.split(',').map(s => s.trim());
+        setManualAddress(prev => ({
+          ...prev,
+          street: addressParts[0] || fallbackAddress,
+          city: addressParts[1] || '',
+          state: addressParts[2] || '',
+          pincode: addressParts.find(part => /^\d{6}$/.test(part)) || '',
+        }));
+      }
     }
   }, []);
 
@@ -334,20 +376,7 @@ export default function AddressScreen() {
           setLocationAddress(geocodeResult.formatted_address || result.description);
           
           // Get detailed address and update form
-          await getAddressFromCoordinates(geocodeResult.latitude, geocodeResult.longitude);
-          
-          // Auto-save this address
-          Alert.alert(
-            'Save Address',
-            'Would you like to save this address?',
-            [
-              { text: 'Enter Manually', style: 'cancel' },
-              { 
-                text: 'Save', 
-                onPress: () => saveSearchedAddress(result.description, geocodeResult.latitude, geocodeResult.longitude)
-              }
-            ]
-          );
+          await getAddressFromCoordinates(geocodeResult.latitude, geocodeResult.longitude, result.description);
         }
       }
     } catch (error) {
@@ -356,62 +385,21 @@ export default function AddressScreen() {
     }
   }, []);
 
-  // Save searched address
-  const saveSearchedAddress = async (addressText: string, lat: number, lng: number) => {
-    if (savedAddresses.length >= 5) {
-      Alert.alert('Address Limit Reached', 'You can only save up to 5 addresses. Please delete an existing address first.');
-      return;
-    }
-
-    const addressParts = addressText.split(',').map(s => s.trim());
-    const city = addressParts.find(part => part.length > 2) || 'Unknown';
-    const state = addressParts.length > 2 ? addressParts[addressParts.length - 2] : 'Unknown';
-    const pincode = addressText.match(/\d{6}/)?.[0] || '';
-
-    const addressData = {
-      label: `Address ${savedAddresses.length + 1}`,
-      street: addressText,
-      city: city,
-      state: state,
-      pincode: pincode,
-      landmark: '',
-      latitude: lat,
-      longitude: lng,
-    };
-
-    try {
-      const response = await fetch(`${API_BASE_URL}address/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(addressData),
-      });
-
-      if (response.ok) {
-        await fetchSavedAddresses();
-        Alert.alert('Success', 'Address saved successfully!');
-        setCurrentTab('saved');
-      } else {
-        const errorData = await response.json();
-        Alert.alert('Error', errorData.detail || 'Failed to save address');
-      }
-    } catch (error) {
-      console.error('Error saving address:', error);
-      Alert.alert('Error', 'Network error. Please try again.');
-    }
-  };
 
   // Save manual address
   const saveManualAddress = async () => {
-    if (!manualAddress.street.trim() || !manualAddress.city.trim() || !manualAddress.pincode.trim()) {
-      Alert.alert('Error', 'Please fill in all required fields (Street, City, and Pincode)');
+    if (!manualAddress.street.trim() || !manualAddress.city.trim() || !manualAddress.pincode.trim() || !manualAddress.mobile_number.trim()) {
+      Alert.alert('Error', 'Please fill in all required fields (Street, City, Pincode, and Mobile Number)');
       return;
     }
 
     if (manualAddress.pincode.length !== 6) {
       Alert.alert('Error', 'Please enter a valid 6-digit pincode');
+      return;
+    }
+
+    if (manualAddress.mobile_number.length !== 10) {
+      Alert.alert('Error', 'Please enter a valid 10-digit mobile number');
       return;
     }
 
@@ -449,6 +437,7 @@ export default function AddressScreen() {
           state: '',
           pincode: '',
           landmark: '',
+          mobile_number: '',
         });
         
         setCurrentTab('saved');
@@ -501,6 +490,104 @@ export default function AddressScreen() {
       console.error('Error setting default address:', error);
       Alert.alert('Error', 'Network error. Please try again.');
     }
+  };
+
+  // Edit address
+  const editAddress = (address: SavedAddress) => {
+    setEditingAddress(address);
+    setEditMode(true);
+    setManualAddress({
+      label: address.label,
+      street: address.street,
+      city: address.city,
+      state: address.state,
+      pincode: address.pincode,
+      landmark: address.landmark || '',
+      mobile_number: address.mobile_number || '',
+    });
+    setCurrentTab('search');
+  };
+
+  // Update address
+  const updateAddress = async () => {
+    if (!editingAddress) return;
+    
+    if (!manualAddress.street.trim() || !manualAddress.city.trim() || !manualAddress.pincode.trim() || !manualAddress.mobile_number.trim()) {
+      Alert.alert('Error', 'Please fill in all required fields (Street, City, Pincode, and Mobile Number)');
+      return;
+    }
+
+    if (manualAddress.pincode.length !== 6) {
+      Alert.alert('Error', 'Please enter a valid 6-digit pincode');
+      return;
+    }
+
+    if (manualAddress.mobile_number.length !== 10) {
+      Alert.alert('Error', 'Please enter a valid 10-digit mobile number');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const addressData = {
+        ...manualAddress,
+        latitude: latitude || editingAddress.latitude || 0,
+        longitude: longitude || editingAddress.longitude || 0,
+      };
+
+      const response = await fetch(`${API_BASE_URL}address/${editingAddress._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(addressData),
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', 'Address updated successfully!');
+        
+        await fetchSavedAddresses();
+        
+        // Reset form and exit edit mode
+        setManualAddress({
+          label: 'Home',
+          street: '',
+          city: '',
+          state: '',
+          pincode: '',
+          landmark: '',
+          mobile_number: '',
+        });
+        
+        setEditingAddress(null);
+        setEditMode(false);
+        setCurrentTab('saved');
+      } else {
+        const errorData = await response.json();
+        Alert.alert('Error', errorData.detail || 'Failed to update address');
+      }
+    } catch (error) {
+      console.error('Error updating address:', error);
+      Alert.alert('Error', 'Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cancel edit
+  const cancelEdit = () => {
+    setEditingAddress(null);
+    setEditMode(false);
+    setManualAddress({
+      label: 'Home',
+      street: '',
+      city: '',
+      state: '',
+      pincode: '',
+      landmark: '',
+      mobile_number: '',
+    });
   };
 
   // Delete address
@@ -663,9 +750,18 @@ export default function AddressScreen() {
         {item.landmark && (
           <Text style={styles.landmarkText}>Near: {item.landmark}</Text>
         )}
+        {item.mobile_number && (
+          <Text style={styles.mobileText}>📱 {item.mobile_number}</Text>
+        )}
       </TouchableOpacity>
       
       <View style={styles.addressActions}>
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => editAddress(item)}
+        >
+          <Ionicons name="create-outline" size={16} color="#007AFF" />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.deleteButton}
           onPress={() => deleteAddress(item._id)}
@@ -826,9 +922,18 @@ export default function AddressScreen() {
               <View style={styles.manualFormSection}>
                 <View style={styles.sectionDivider}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>Or enter manually</Text>
+                  <Text style={styles.dividerText}>Review & Edit Address Details</Text>
                   <View style={styles.dividerLine} />
                 </View>
+
+                {manualAddress.street && (
+                  <View style={styles.populatedNotice}>
+                    <Ionicons name="information-circle" size={16} color="#007AFF" />
+                    <Text style={styles.populatedNoticeText}>
+                      Address details populated from search. Please review and edit as needed.
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Address Label</Text>
@@ -887,6 +992,18 @@ export default function AddressScreen() {
                   </View>
                 </View>
 
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Mobile Number *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={manualAddress.mobile_number}
+                    onChangeText={(text) => setManualAddress(prev => ({ ...prev, mobile_number: text.replace(/\D/g, '').substring(0, 10) }))}
+                    placeholder="10-digit mobile number"
+                    keyboardType="numeric"
+                    maxLength={10}
+                  />
+                </View>
+
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
                     <Text style={styles.inputLabel}>Pincode *</Text>
@@ -911,17 +1028,31 @@ export default function AddressScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity 
-                  style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
-                  onPress={saveManualAddress}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Save Address</Text>
+                <View style={styles.buttonContainer}>
+                  <TouchableOpacity 
+                    style={[styles.saveButton, loading && styles.saveButtonDisabled, editMode && styles.saveButtonEditMode]} 
+                    onPress={editMode ? updateAddress : saveManualAddress}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>
+                        {editMode ? 'Update Address' : 'Save Address'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  
+                  {editMode && (
+                    <TouchableOpacity 
+                      style={styles.cancelButton} 
+                      onPress={cancelEdit}
+                      disabled={loading}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                </View>
               </View>
 
               {savedAddresses.length >= 5 && (
@@ -1143,8 +1274,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
+  mobileText: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 4,
+    fontWeight: '500',
+  },
   addressActions: {
+    flexDirection: 'row',
     paddingRight: 16,
+  },
+  editButton: {
+    padding: 8,
+    marginRight: 8,
   },
   deleteButton: {
     padding: 8,
@@ -1325,8 +1467,29 @@ const styles = StyleSheet.create({
   saveButtonDisabled: {
     backgroundColor: '#ccc',
   },
+  saveButtonEditMode: {
+    flex: 1,
+  },
   saveButtonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  cancelButton: {
+    backgroundColor: '#f0f0f0',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+    marginLeft: 12,
+    flex: 1,
+  },
+  cancelButtonText: {
+    color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1343,6 +1506,23 @@ const styles = StyleSheet.create({
   limitWarningText: {
     fontSize: 14,
     color: '#856404',
+    marginLeft: 8,
+    flex: 1,
+    lineHeight: 18,
+  },
+  populatedNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BBDEFB',
+    marginBottom: 16,
+  },
+  populatedNoticeText: {
+    fontSize: 14,
+    color: '#1976D2',
     marginLeft: 8,
     flex: 1,
     lineHeight: 18,
