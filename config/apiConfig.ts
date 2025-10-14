@@ -40,7 +40,8 @@ interface ApiEndpoints {
   REGISTER: string;
   PROFILE: string;
   REFRESH_TOKEN: string;
-
+  AUTH_GOOGLE:string;
+  
   // Products
   PRODUCTS: string;
   PRODUCT_BY_ID: (id: string) => string;
@@ -75,6 +76,7 @@ interface ApiEndpoints {
   GEOCODE: string;
   REVERSE_GEOCODE: string;
   ADDRESS_HEALTH: string;
+  MY_ADDRESS:string;
 
   // Health check
   HEALTH: string;
@@ -123,6 +125,7 @@ export const API_ENDPOINTS: ApiEndpoints = {
   GEOCODE: joinApiUrl(API_BASE_URL, 'geocode'), 
   REVERSE_GEOCODE: joinApiUrl(API_BASE_URL, 'reverse-geocode'),
   ADDRESS_HEALTH: joinApiUrl(API_BASE_URL, 'health'),
+  MY_ADDRESS: joinApiUrl(API_BASE_URL,'address/my'),
 
   // Health check
   HEALTH: joinApiUrl(API_BASE_URL, 'health'),

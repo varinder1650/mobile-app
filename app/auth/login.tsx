@@ -38,7 +38,7 @@ export default function LoginScreen() {
       iosClientId: GOOGLE_IOS_CLIENT_ID,
       offlineAccess: true,
       hostedDomain: '', // specify a domain to restrict sign-ups to
-      loginHint: '', // [iOS] The user's ID, or email address, to be prefilled in the authentication UI
+      // loginHint: '', // [iOS] The user's ID, or email address, to be prefilled in the authentication UI
       forceCodeForRefreshToken: true, // [Android] related to `serverAuthCode`, read the docs link below *.
       accountName: '', // [Android] specifies an account name on the device that should be used
     });
@@ -60,11 +60,11 @@ export default function LoginScreen() {
 
       // Sign in with Google
       const userInfo = await GoogleSignin.signIn();
-      console.log('✅ Google Sign-In successful:', {
-        id: userInfo.data.user.id,
-        email: userInfo.data.user.email,
-        name: userInfo.data.user.name,
-      });
+      // console.log('✅ Google Sign-In successful:', {
+      //   id: userInfo.user.id, // Access user directly from userInfo, as userInfo.data can be null
+      //   email: userInfo.user.email,
+      //   name: userInfo.user.name,
+      // });
 
       // Get tokens
       const tokens = await GoogleSignin.getTokens();
@@ -72,9 +72,9 @@ export default function LoginScreen() {
 
       // Prepare user data for backend
       const googleUserData = {
-          email: userInfo.data.user.email,
-          name: userInfo.data.user.name,
-          googleId: userInfo.data.user.id,
+          email: userInfo.user.email,
+          name: userInfo.user.name,
+          googleId: userInfo.user.id,
       };
 
       console.log('📤 Sending Google login data to backend...');
@@ -103,13 +103,13 @@ export default function LoginScreen() {
     } catch (error) {
       console.error('❌ Google Sign-In error:', error);
       
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === statusCodes.SIGN_IN_CANCELLED) {
         console.log('ℹ️ User cancelled Google login');
         // User cancelled - no need to show error
-      } else if (error.code === statusCodes.IN_PROGRESS) {
+      } else if (error && typeof error === 'object' && 'code' in error && error.code === statusCodes.IN_PROGRESS) {
         console.log('ℹ️ Google sign-in already in progress');
         Alert.alert('Please Wait', 'Google sign-in is already in progress');
-      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      } else if (error && typeof error === 'object' && 'code' in error && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         Alert.alert('Error', 'Google Play Services not available or outdated');
       } else {
         console.log('❌ Unknown Google Sign-In error:', error);

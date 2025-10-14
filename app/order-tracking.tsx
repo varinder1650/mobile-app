@@ -14,13 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useOrderTracking } from '../contexts/OrderTrackingContext';
-import { API_BASE_URL } from '../config/apiConfig';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function OrderTrackingScreen() {
   const { activeOrder, loading, refreshActiveOrder } = useOrderTracking();
   const { token } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedTip, setSelectedTip] = useState<number | null>(null);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -36,68 +36,32 @@ export default function OrderTrackingScreen() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = () => {
+    return '#00A65A';
+  };
+
+  const getStatusText = (status: string) => {
     switch (status) {
-      case 'pending':
-      case 'confirmed':
-        return '#007AFF';
       case 'preparing':
+        return 'Preparing your order';
       case 'assigning':
-      case 'accepted':
-        return '#5856D6';
+        return 'Assigning delivery partner shortly';
       case 'assigned':
+        return 'Delivery partner assigned';
       case 'out_for_delivery':
-        return '#FF9500';
+        return 'On the way';
       case 'delivered':
-        return '#34C759';
+        return 'Order delivered';
       default:
-        return '#8E8E93';
+        return 'Order in progress';
     }
-  };
-
-  const formatTime = (dateString?: string) => {
-    if (!dateString) return null;
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return null;
-    }
-  };
-
-  // Helper to get timestamp from status_change_history
-  const getStatusTimestamp = (status: string) => {
-    const historyItem = activeOrder?.status_change_history?.find(
-      (item: any) => item.status === status
-    );
-    return historyItem?.changed_at || null;
-  };
-
-  // Helper to check if status is completed
-  const isStatusCompleted = (checkStatus: string) => {
-    const statusOrder = [
-      'confirmed', 
-      'preparing',
-      'assigning',
-      'assigned',
-      'out_for_delivery',
-      'delivered'
-    ];
-    
-    const currentIndex = statusOrder.indexOf(activeOrder?.order_status || 'pending');
-    const checkIndex = statusOrder.indexOf(checkStatus);
-    
-    return checkIndex <= currentIndex;
   };
 
   if (loading && !activeOrder) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#00A65A" />
           <Text style={styles.loadingText}>Loading order status...</Text>
         </View>
       </SafeAreaView>
@@ -109,10 +73,12 @@ export default function OrderTrackingScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#333" />
+            <Ionicons name="chevron-down" size={28} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Order Tracking</Text>
-          <View style={styles.placeholder} />
+          {/* <Text style={styles.headerTitle}>{activeOrder?.restaurant_name || 'Restaurant'}</Text> */}
+          {/* <TouchableOpacity style={styles.shareButton}>
+            <Ionicons name="share-outline" size={24} color="#fff" />
+          </TouchableOpacity> */}
         </View>
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={64} color="#ccc" />
@@ -132,16 +98,33 @@ export default function OrderTrackingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order #{activeOrder.id || 'Unknown'}</Text>
-        <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
-          <Ionicons name="refresh" size={24} color="#007AFF" />
-        </TouchableOpacity>
+    <View style={styles.container}>
+      {/* Green Header */}
+      <View style={[styles.header, { backgroundColor: getStatusColor() }]}>
+        <SafeAreaView edges={['top']}>
+          <View style={styles.headerContent}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="chevron-down" size={28} color="#fff" />
+            </TouchableOpacity>
+            {/* <Text style={styles.headerTitle}>{activeOrder.restaurant_name || 'Restaurant'}</Text>
+            <TouchableOpacity style={styles.shareButton}>
+              <Ionicons name="share-outline" size={24} color="#fff" />
+            </TouchableOpacity> */}
+          </View>
+
+          {/* Status Section */}
+          <View style={styles.statusSection}>
+            <Text style={styles.statusTitle}>{getStatusText(activeOrder.order_status)}</Text>
+            <View style={styles.deliveryInfo}>
+              <Text style={styles.deliveryText}>
+                Arriving in {activeOrder.estimated_delivery_time || '30'} mins • On time
+              </Text>
+              <TouchableOpacity onPress={onRefresh} style={styles.refreshIcon}>
+                <Ionicons name="refresh" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
       </View>
 
       <ScrollView
@@ -151,292 +134,274 @@ export default function OrderTrackingScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Status Card */}
-        <View style={styles.statusCard}>
-          <View style={styles.statusHeader}>
-            <View>
-              <Text style={styles.statusLabel}>Current Status</Text>
-              <Text style={[
-                styles.statusTitle,
-                { color: getStatusColor(activeOrder.order_status) }
-              ]}>
-                {activeOrder.order_status?.replace(/_/g, ' ').toUpperCase()}
-              </Text>
+        {/* Promotional Banner Carousel */}
+        {/* <View style={styles.bannerContainer}>
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Apply now ▸</Text>
+          </View>
+          <View style={styles.carouselDots}>
+            <View style={[styles.dot, styles.activeDot]} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
+          </View>
+        </View> */}
+
+        {/* Tip Section - Show when assigning */}
+        {activeOrder.order_status === 'assigning' && (
+          <View style={styles.tipSection}>
+            <View style={styles.tipHeader}>
+              <View style={styles.tipIconContainer}>
+                <Ionicons name="person-circle-outline" size={40} color="#E74C3C" />
+              </View>
+              <View style={styles.tipTextContainer}>
+                <Text style={styles.tipTitle}>Assigning delivery partner shortly</Text>
+              </View>
             </View>
-            <View style={[
-              styles.statusIconContainer,
-              { backgroundColor: getStatusColor(activeOrder.order_status) + '20' }
-            ]}>
-              <Ionicons 
-                name="checkmark-circle" 
-                size={48} 
-                color={getStatusColor(activeOrder.order_status)} 
-              />
+            <Text style={styles.tipDescription}>
+              Make their day by leaving a tip. 100% of the amount will go to them after delivery
+            </Text>
+            <View style={styles.tipOptions}>
+              <TouchableOpacity
+                style={[styles.tipButton, selectedTip === 20 && styles.tipButtonSelected]}
+                onPress={() => setSelectedTip(20)}
+              >
+                <Text style={[styles.tipButtonText, selectedTip === 20 && styles.tipButtonTextSelected]}>
+                  ₹20
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tipButton, selectedTip === 30 && styles.tipButtonSelected]}
+                onPress={() => setSelectedTip(30)}
+              >
+                <Text style={[styles.tipButtonText, selectedTip === 30 && styles.tipButtonTextSelected]}>
+                  ₹30
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tipButton, selectedTip === 50 && styles.tipButtonSelected]}
+                onPress={() => setSelectedTip(50)}
+              >
+                <Text style={[styles.tipButtonText, selectedTip === 50 && styles.tipButtonTextSelected]}>
+                  ₹50
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tipButton, selectedTip === 0 && styles.tipButtonSelected]}
+                onPress={() => setSelectedTip(0)}
+              >
+                <Text style={[styles.tipButtonText, selectedTip === 0 && styles.tipButtonTextSelected]}>
+                  Other
+                </Text>
+              </TouchableOpacity>
             </View>
+            <TouchableOpacity style={styles.safetyLink}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#666" />
+              <Text style={styles.safetyLinkText}>Learn about delivery partner safety</Text>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Delivery Details Card */}
+        <View style={styles.deliveryDetailsCard}>
+          <View style={styles.deliveryDetailsHeader}>
+            <Text style={styles.deliveryDetailsTitle}>
+              All your delivery details in one place 👇
+            </Text>
           </View>
 
-          {/* {activeOrder.status_message && (
-            <View style={styles.messageContainer}>
-              <Ionicons name="information-circle" size={20} color="#007AFF" />
-              <Text style={styles.messageText}>{activeOrder.status_message}</Text>
+          {/* Phone Number */}
+          <View style={styles.detailRow}>
+            <Ionicons name="call-outline" size={24} color="#666" />
+            <View style={styles.detailTextContainer}>
+              <Text style={styles.detailTitle}>
+                {activeOrder.delivery_address?.phone || 'Phone Number'}
+              </Text>
+              <Text style={styles.detailSubtitle}>Delivery partner may call this number</Text>
             </View>
-          )} */}
+            {/* <TouchableOpacity>
+              <Text style={styles.editButton}>Edit</Text>
+            </TouchableOpacity> */}
+          </View>
 
-          {/* {activeOrder.estimated_delivery_time && (
-            <View style={styles.estimatedTime}>
-              <Ionicons name="time-outline" size={18} color="#666" />
-              <Text style={styles.estimatedTimeText}>
-                Estimated: {formatTime(activeOrder.estimated_delivery_time)}
+          {/* Delivery Address */}
+          <View style={styles.detailRow}>
+            <Ionicons name="home-outline" size={24} color="#666" />
+            <View style={styles.detailTextContainer}>
+              {/* <Text style={styles.detailTitle}>
+                {activeOrder.delivery_address?.label || 'Delivery at Home'}
+              </Text> */}
+              <Text style={styles.detailSubtitle} numberOfLines={2}>
+                {activeOrder.delivery_address?.address || 'Address not available'}
               </Text>
             </View>
-          )} */}
+            {/* <TouchableOpacity>
+              <Text style={styles.editButton}>Edit</Text>
+            </TouchableOpacity> */}
+          </View>
+
+          {/* Delivery Instructions */}
+          {/* <TouchableOpacity style={styles.instructionsRow}>
+            <Ionicons name="bicycle-outline" size={24} color="#666" />
+            <Text style={styles.instructionsText}>Add delivery instructions</Text>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity> */}
         </View>
 
-        {/* Delivery Partner Card */}
-        {activeOrder.delivery_partner && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Delivery Partner</Text>
-            <View style={styles.partnerCard}>
-              <View style={styles.partnerInfo}>
-                <View style={styles.partnerAvatar}>
-                  <Ionicons name="person" size={28} color="#fff" />
-                </View>
-                <View style={styles.partnerDetails}>
-                  <Text style={styles.partnerName}>
-                    {activeOrder.delivery_partner.name || 'Delivery Partner'}
-                  </Text>
-                  {activeOrder.delivery_partner.rating && (
-                    <View style={styles.ratingContainer}>
-                      <Ionicons name="star" size={14} color="#FFD700" />
-                      <Text style={styles.ratingText}>
-                        {activeOrder.delivery_partner.rating.toFixed(1)}
-                      </Text>
-                      {activeOrder.delivery_partner.deliveries && activeOrder.delivery_partner.deliveries > 0 && (
-                        <Text style={styles.deliveriesText}>
-                          • {activeOrder.delivery_partner.deliveries} deliveries
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                </View>
-              </View>
+        {/* Restaurant Card */}
+        <View style={styles.restaurantCard}>
+          <View style={styles.restaurantHeader}>
+            {/* <View style={styles.restaurantAvatar}>
+              <Ionicons name="restaurant" size={28} color="#fff" />
+            </View> */}
+            {/* <View style={styles.restaurantInfo}>
+              <Text style={styles.restaurantName}>{activeOrder.restaurant_name}</Text>
+              <Text style={styles.restaurantLocation}>
+                {activeOrder.restaurant?.location || 'Location'}
+              </Text>
+            </View> */}
+            {activeOrder.delivery_partner && (
               <TouchableOpacity
                 style={styles.callButton}
                 onPress={handleCallDeliveryPartner}
               >
-                <Ionicons name="call" size={24} color="#fff" />
+                <Ionicons name="call" size={24} color="#00A65A" />
               </TouchableOpacity>
-            </View>
+            )}
           </View>
-        )}
 
-        {/* Order Items Summary */}
-        {activeOrder.items && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Order Items ({activeOrder.items.length})</Text>
-            <View style={styles.itemsCard}>
-              {activeOrder.items.map((item: any, index: number) => (
-                <View key={index} style={styles.itemRow}>
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.product_name || item.product} x{item.quantity}
-                  </Text>
-                  <Text style={styles.itemPrice}>
-                    ₹{(item.price * item.quantity).toFixed(2)}
-                  </Text>
+          {/* Order Details */}
+          <TouchableOpacity style={styles.orderDetailsRow}>
+            <Ionicons name="receipt-outline" size={24} color="#666" />
+            <View style={styles.orderDetailsText}>
+              <Text style={styles.orderNumber}>Order #{activeOrder.id}</Text>
+              <View style={styles.orderItemsPreview}>
+                <View style={styles.vegIcon}>
+                  <View style={styles.vegDot} />
                 </View>
-              ))}
-              
-              {/* Pricing Breakdown */}
-              <View style={styles.pricingSection}>
-                <View style={styles.pricingRow}>
-                  <Text style={styles.pricingLabel}>Subtotal</Text>
-                  <Text style={styles.pricingValue}>₹{activeOrder.subtotal?.toFixed(2) || '0.00'}</Text>
-                </View>
-                {(activeOrder.tax ?? 0) > 0 && (
-                  <View style={styles.pricingRow}>
-                    <Text style={styles.pricingLabel}>Tax</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.tax?.toFixed(2) || '0.00'}</Text>
-                  </View>
-                )}
-                {(activeOrder.delivery_charge ?? 0) > 0 && (
-                  <View style={styles.pricingRow}>
-                    <Text style={styles.pricingLabel}>Delivery</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.delivery_charge?.toFixed(2) || '0.00'}</Text>
-                  </View>
-                )}
-                {(activeOrder.app_fee ?? 0) > 0 && (
-                  <View style={styles.pricingRow}>
-                    <Text style={styles.pricingLabel}>Service Fee</Text>
-                    <Text style={styles.pricingValue}>₹{activeOrder.app_fee?.toFixed(2) || '0.00'}</Text>
-                  </View>
-                )}
-                {(activeOrder.promo_discount ?? 0) > 0 && (
-                  <View style={styles.pricingRow}>
-                    <Text style={[styles.pricingLabel, { color: '#34C759' }]}>Promo Discount</Text>
-                    <Text style={[styles.pricingValue, { color: '#34C759' }]}>
-                      -₹{activeOrder.promo_discount?.toFixed(2) || '0.00'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>
-                  ₹{activeOrder.total_amount?.toFixed(2) || '0.00'}
+                <Text style={styles.orderItemsText} numberOfLines={1}>
+                  {activeOrder.items?.length || 0} x items
                 </Text>
               </View>
             </View>
-          </View>
-        )}
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity>
 
-        {/* Timeline */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Order Timeline</Text>
-          <View style={styles.timelineCard}>
-            {renderTimelineItem(
-              'delivered',
-              'Delivered', 
-              activeOrder.delivered_at || getStatusTimestamp('delivered'),
-              isStatusCompleted('delivered')
-            )}
-            {/* {renderTimelineItem(
-              'arrived',
-              'Arrived at location',
-              activeOrder.arrived_at || getStatusTimestamp('arrived'),
-              isStatusCompleted('arrived')
-            )} */}
-            {renderTimelineItem(
-              'out_for_delivery',
-              'Out for delivery',
-              activeOrder.out_for_delivery_at || getStatusTimestamp('out_for_delivery'),
-              isStatusCompleted('out_for_delivery')
-            )}
-            {renderTimelineItem(
-              'assigned',
-              'Partner assigned',
-              activeOrder.assigned_at || getStatusTimestamp('assigned'),
-              isStatusCompleted('assigned')
-            )}
-            {renderTimelineItem(
-              'preparing',
-              'Being prepared',
-              activeOrder.preparing_at || getStatusTimestamp('preparing'),
-              isStatusCompleted('preparing')
-            )}
-            {renderTimelineItem(
-              'confirmed',
-              'Order confirmed',
-              activeOrder.confirmed_at || activeOrder.created_at || null,
-              true
-            )}
-          </View>
+          {/* Add cooking requests */}
+          {/* <TouchableOpacity style={styles.optionRow}>
+            <Ionicons name="chatbox-outline" size={24} color="#ccc" />
+            <Text style={styles.optionTextDisabled}>Add cooking requests</Text>
+          </TouchableOpacity> */}
+
+          {/* Add more items */}
+          {/* <TouchableOpacity style={styles.optionRow}>
+            <Ionicons name="add-circle-outline" size={24} color="#666" />
+            <View style={styles.optionTextContainer}>
+              <Text style={styles.optionText}>Add more items</Text>
+              <Text style={styles.optionSubtext}>Get free delivery on additional items</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity> */}
         </View>
-
-        {/* Delivery Address */}
-        {activeOrder.delivery_address && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Delivery Address</Text>
-            <View style={styles.addressCard}>
-              <Ionicons name="location" size={24} color="#007AFF" />
-              <View style={styles.addressInfo}>
-                <Text style={styles.addressText}>
-                  {activeOrder.delivery_address.address}
-                </Text>
-                <Text style={styles.addressSubtext}>
-                  {activeOrder.delivery_address.city}, {activeOrder.delivery_address.state} {activeOrder.delivery_address.pincode}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
 
         {/* Help Section */}
-        <TouchableOpacity
-          style={styles.helpButton}
+        <View style={styles.helpSection}>
+          <TouchableOpacity style={styles.helpRow}
           onPress={() => router.push('/help-support')}
-        >
-          <Ionicons name="help-circle-outline" size={24} color="#007AFF" />
-          <Text style={styles.helpText}>Need help with this order?</Text>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </TouchableOpacity>
+          >
+            <View style={styles.helpIconContainer}>
+              <Ionicons name="headset-outline" size={28} color="#E74C3C" />
+            </View>
+            <View style={styles.helpTextContainer}>
+              <Text style={styles.helpTitle}>Need help with your order?</Text>
+              <Text style={styles.helpSubtitle}>Get help & support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity>
 
-        <View style={{ height: 100 }} />
+          {/* <TouchableOpacity style={styles.cancelRow}>
+            <Ionicons name="close-circle-outline" size={24} color="#666" />
+            <Text style={styles.cancelText}>Cancel order</Text>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity> */}
+        </View>
+
+        {/* Notifications Section */}
+        {/* <View style={styles.notificationsSection}>
+          <TouchableOpacity style={styles.notificationRow}>
+            <View style={styles.notificationIconContainer}>
+              <Ionicons name="notifications-outline" size={28} color="#FF9500" />
+            </View>
+            <View style={styles.notificationTextContainer}>
+              <Text style={styles.notificationTitle}>Get live order updates</Text>
+              <Text style={styles.notificationSubtitle}>Enable notifications to get updates</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity>
+        </View> */}
+
+        <View style={{ height: 120 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
-
-  function renderTimelineItem(
-    status: string,
-    label: string,
-    time: string | null,
-    isCompleted: boolean
-  ) {
-    return (
-      <View style={styles.timelineItem}>
-        <View style={styles.timelineIndicator}>
-          <View style={[
-            styles.timelineDot,
-            isCompleted && styles.timelineDotCompleted
-          ]}>
-            {isCompleted && (
-              <Ionicons name="checkmark" size={12} color="#fff" />
-            )}
-          </View>
-          {status !== 'confirmed' && (
-            <View style={[
-              styles.timelineLine,
-              isCompleted && styles.timelineLineCompleted
-            ]} />
-          )}
-        </View>
-        <View style={styles.timelineContent}>
-          <Text style={[
-            styles.timelineLabel,
-            isCompleted && styles.timelineLabelCompleted
-          ]}>
-            {label}
-          </Text>
-          {time && isCompleted && (
-            <Text style={styles.timelineTime}>{formatTime(time)}</Text>
-          )}
-          {!isCompleted && (
-            <Text style={styles.timelinePending}>Pending</Text>
-          )}
-        </View>
-      </View>
-    );
-  }
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F5F5F5',
   },
   header: {
+    backgroundColor: '#00A65A',
+    paddingBottom: 20,
+  },
+  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    paddingTop: 8,
   },
   backButton: {
-    padding: 8,
+    padding: 4,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
   },
-  refreshButton: {
-    padding: 8,
+  shareButton: {
+    padding: 4,
   },
-  placeholder: {
-    width: 40,
+  statusSection: {
+    alignItems: 'center',
+    paddingTop: 16,
+  },
+  statusTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  deliveryInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  deliveryText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#fff',
+    marginRight: 8,
+  },
+  refreshIcon: {
+    padding: 4,
   },
   loadingContainer: {
     flex: 1,
@@ -468,7 +433,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   shopButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#00A65A',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
@@ -481,317 +446,334 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  statusCard: {
+  bannerContainer: {
     backgroundColor: '#fff',
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    marginTop: 8,
+    paddingVertical: 12,
   },
-  statusHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  banner: {
+    paddingHorizontal: 16,
   },
-  statusLabel: {
+  bannerText: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 4,
   },
-  statusTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-  },
-  statusIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  carouselDots: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
   },
-  messageContainer: {
-    backgroundColor: '#F0F8FF',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D0D0D0',
   },
-  messageText: {
-    fontSize: 14,
-    color: '#333',
-    lineHeight: 20,
-    marginLeft: 8,
-    flex: 1,
+  activeDot: {
+    backgroundColor: '#00A65A',
   },
-  estimatedTime: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  estimatedTimeText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-  },
-  section: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  partnerCard: {
+  tipSection: {
     backgroundColor: '#fff',
+    marginTop: 8,
     padding: 16,
-    borderRadius: 12,
+  },
+  tipHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    marginBottom: 12,
   },
-  partnerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  partnerAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+  tipIconContainer: {
     marginRight: 12,
   },
-  partnerDetails: {
+  tipTextContainer: {
     flex: 1,
   },
-  partnerName: {
+  tipTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  tipDescription: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  tipOptions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  tipButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+  },
+  tipButtonSelected: {
+    backgroundColor: '#00A65A',
+  },
+  tipButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  tipButtonTextSelected: {
+    color: '#fff',
+  },
+  safetyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  safetyLinkText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 12,
+  },
+  deliveryDetailsCard: {
+    backgroundColor: '#FFF9E6',
+    marginTop: 8,
+    padding: 16,
+  },
+  deliveryDetailsHeader: {
+    marginBottom: 16,
+  },
+  deliveryDetailsTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8B4513',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  detailTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  detailTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 4,
   },
-  ratingContainer: {
+  detailSubtitle: {
+    fontSize: 13,
+    color: '#666',
+  },
+  editButton: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#00A65A',
+  },
+  instructionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
   },
-  ratingText: {
-    fontSize: 14,
+  instructionsText: {
+    flex: 1,
+    fontSize: 16,
     color: '#666',
-    marginLeft: 4,
+    marginLeft: 12,
   },
-  deliveriesText: {
-    fontSize: 12,
-    color: '#999',
-    marginLeft: 4,
+  restaurantCard: {
+    backgroundColor: '#fff',
+    marginTop: 8,
+    padding: 16,
   },
-  callButton: {
+  restaurantHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  restaurantAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#34C759',
+    backgroundColor: '#FF6B35',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#34C759',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  itemsCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
-  itemName: {
-    fontSize: 14,
-    color: '#333',
-    flex: 1,
     marginRight: 12,
   },
-  itemPrice: {
-    fontSize: 14,
+  restaurantInfo: {
+    flex: 1,
+  },
+  restaurantName: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    marginBottom: 4,
   },
-  pricingSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  pricingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  pricingLabel: {
-    fontSize: 14,
+  restaurantLocation: {
+    fontSize: 13,
     color: '#666',
   },
-  pricingValue: {
-    fontSize: 14,
-    color: '#666',
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    marginTop: 8,
-    borderTopWidth: 2,
-    borderTopColor: '#007AFF',
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-  },
-  totalValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#007AFF',
-  },
-  timelineCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    marginBottom: 20,
-  },
-  timelineIndicator: {
-    alignItems: 'center',
-    marginRight: 16,
-    width: 24,
-  },
-  timelineDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#e0e0e0',
-    borderWidth: 3,
-    borderColor: '#fff',
+  callButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E8F8F0',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  timelineDotCompleted: {
-    backgroundColor: '#34C759',
-  },
-  timelineLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: '#e0e0e0',
-    marginTop: 4,
-    minHeight: 20,
-  },
-  timelineLineCompleted: {
-    backgroundColor: '#34C759',
-  },
-  timelineContent: {
-    flex: 1,
-    paddingTop: 2,
-  },
-  timelineLabel: {
-    fontSize: 15,
-    color: '#999',
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  timelineLabelCompleted: {
-    color: '#333',
-    fontWeight: '600',
-  },
-  timelineTime: {
-    fontSize: 13,
-    color: '#34C759',
-    fontWeight: '500',
-  },
-  timelinePending: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  addressCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
+  orderDetailsRow: {
     flexDirection: 'row',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
-  addressInfo: {
+  orderDetailsText: {
     flex: 1,
     marginLeft: 12,
   },
-  addressText: {
-    fontSize: 15,
+  orderNumber: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
-    fontWeight: '500',
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  addressSubtext: {
+  orderItemsPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  vegIcon: {
+    width: 16,
+    height: 16,
+    borderWidth: 1.5,
+    borderColor: '#00A65A',
+    borderRadius: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  vegDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#00A65A',
+  },
+  orderItemsText: {
     fontSize: 13,
     color: '#666',
   },
-  helpButton: {
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
-  helpText: {
+  optionTextDisabled: {
     flex: 1,
+    fontSize: 14,
+    color: '#ccc',
+    marginLeft: 12,
+  },
+  optionTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  optionText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#333',
+    marginBottom: 4,
+  },
+  optionSubtext: {
+    fontSize: 13,
+    color: '#666',
+  },
+  helpSection: {
+    backgroundColor: '#fff',
+    marginTop: 8,
+    padding: 16,
+  },
+  helpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  helpIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFE8E8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  helpTextContainer: {
+    flex: 1,
+  },
+  helpTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  helpSubtitle: {
+    fontSize: 13,
+    color: '#666',
+  },
+  cancelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  cancelText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
     marginLeft: 12,
+  },
+  notificationsSection: {
+    backgroundColor: '#fff',
+    marginTop: 8,
+    padding: 16,
+  },
+  notificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notificationIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFF4E6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  notificationTextContainer: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  notificationSubtitle: {
+    fontSize: 13,
+    color: '#666',
   },
 });

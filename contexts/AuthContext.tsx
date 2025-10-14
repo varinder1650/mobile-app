@@ -107,13 +107,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [refreshTokenValue, setRefreshTokenValue] = useState<string | null>(null);
 
   // Get Google OAuth config from environment
-  const getGoogleConfig = useCallback(() => {
-    const extra = Constants.expoConfig?.extra;
-    return {
-      webClientId: extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
-      iosClientId: extra?.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
-    };
-  }, []);
+  // const getGoogleConfig = useCallback(() => {
+  //   const extra = Constants.expoConfig?.extra;
+  //   return {
+  //     webClientId: extra?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
+  //     iosClientId: extra?.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
+  //   };
+  // }, []);
 
   useEffect(() => {
     loadStoredAuth();
@@ -144,32 +144,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     await secureStorage.clearAuthData();
   };
 
-  const validateToken = async (tokenToValidate: string): Promise<boolean> => {
-    try {
-      const response = await fetchWithTimeout(
-        API_ENDPOINTS.PROFILE,
-        {
-          headers: {
-            'Authorization': `Bearer ${tokenToValidate}`,
-          },
-        },
-        5000
-      );
+  // const validateToken = async (tokenToValidate: string): Promise<boolean> => {
+  //   try {
+  //     const response = await fetchWithTimeout(
+  //       API_ENDPOINTS.PROFILE,
+  //       {
+  //         headers: {
+  //           'Authorization': `Bearer ${tokenToValidate}`,
+  //         },
+  //       },
+  //       5000
+  //     );
       
-      if (!response.ok) {
-        // Try to refresh token
-        if (refreshTokenValue) {
-          return await handleTokenRefresh();
-        }
-        return false;
-      }
+  //     if (!response.ok) {
+  //       // Try to refresh token
+  //       if (refreshTokenValue) {
+  //         return await handleTokenRefresh();
+  //       }
+  //       return false;
+  //     }
       
-      return true;
-    } catch (error) {
-      console.error('Token validation error:', error);
-      return false;
-    }
-  };
+  //     return true;
+  //   } catch (error) {
+  //     console.error('Token validation error:', error);
+  //     return false;
+  //   }
+  // };
 
   const loadStoredAuth = async (): Promise<void> => {
     try {
@@ -249,6 +249,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         data.refresh_token,
         data.user
       );
+
+      console.log("access token: ",data.access_token)
+      console.log("access token: ",data.refresh_token)
 
       setToken(data.access_token);
       setRefreshTokenValue(data.refresh_token);
@@ -333,61 +336,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { success: false, error: errorMessage };
     }
   };
-
-  // const googleLogin = async (googleToken: string, userInfo: any): Promise<LoginResult> => {
-  //   try {
-  //     console.log('Attempting Google login');
-      
-  //     const googleConfig = getGoogleConfig();
-      
-  //     const response = await fetchWithTimeout(
-  //       createApiUrl('auth/google'),
-  //       {
-  //         method: 'POST',
-  //         headers: {
-  //           'Content-Type': 'application/json',
-  //         },
-  //         body: JSON.stringify({
-  //           googleToken,
-  //           user: {
-  //             googleId: userInfo.googleId,
-  //             email: userInfo.email?.toLowerCase(),
-  //             name: userInfo.name,
-  //           },
-  //           clientId: googleConfig.webClientId,
-  //         }),
-  //       },
-  //       API_REQUEST_TIMEOUT
-  //     );
-
-  //     const data = await response.json();
-      
-  //     if (!response.ok) {
-  //       const errorMessage = data.message || 'Google login failed';
-  //       return { success: false, error: errorMessage };
-  //     }
-
-  //     // Store authentication data securely
-  //     await secureStorage.storeAuthData(
-  //       data.access_token,
-  //       data.refresh_token,
-  //       data.user
-  //     );
-
-  //     setToken(data.access_token);
-  //     setRefreshTokenValue(data.refresh_token);
-  //     setUser(data.user);
-
-  //     return { 
-  //       success: true,
-  //       requires_phone: data.requires_phone || false
-  //     };
-  //   } catch (error) {
-  //     console.error('Google login error:', error);
-  //     const errorMessage = error instanceof Error ? error.message : 'Google login failed';
-  //     return { success: false, error: errorMessage };
-  //   }
-  // };
 
   const googleLogin = async (googleToken: string, userInfo: any): Promise<LoginResult> => {
     try {
@@ -503,7 +451,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(updatedUser);
       
       // Update stored user data
-      await secureStorage.storeAuthData(token, refreshTokenValue, updatedUser);
+      await secureStorage.storeAuthData(token, refreshTokenValue ?? undefined, updatedUser);
       
       return { success: true, user: updatedUser };
     } catch (error) {
@@ -589,7 +537,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Update user data with verified phone
       if (data.user) {
         setUser(data.user);
-        await secureStorage.storeAuthData(token, refreshTokenValue, data.user);
+        await secureStorage.storeAuthData(token!, refreshTokenValue??undefined, data.user);
       }
 
       return { success: true };
@@ -670,7 +618,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       setUser(data.user);
-      await secureStorage.storeAuthData(token, refreshTokenValue, data.user);
+      await secureStorage.storeAuthData(token, refreshTokenValue??undefined, data.user);
 
       return { success: true, user: data.user };
     } catch (error) {
@@ -678,68 +626,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { success: false, error: errorMessage };
     }
   };
-
-  // const handleTokenRefresh = async (): Promise<boolean> => {
-  //   try {
-  //     if (!refreshTokenValue) {
-  //       console.log('No refresh token available');
-  //       await clearAuth();
-  //       return false;
-  //     }
-
-  //     console.log('Attempting to refresh token...');
-  //     const response = await fetchWithTimeout(
-  //       API_ENDPOINTS.REFRESH_TOKEN,
-  //       {
-  //         method: 'POST',
-  //         headers: {
-  //           'Content-Type': 'application/json',
-  //         },
-  //         body: JSON.stringify({ refresh_token: refreshTokenValue }),
-  //       },
-  //       10000
-  //     );
-
-  //     if (!response.ok) {
-  //       console.log('Token refresh failed, clearing auth');
-  //       await clearAuth();
-  //       return false;
-  //     }
-
-  //     const data = await response.json();
-      
-  //     // Update tokens
-  //     setToken(data.access_token);
-  //     if (data.refresh_token) {
-  //       setRefreshTokenValue(data.refresh_token);
-  //     }
-
-  //     // Save new tokens securely
-  //     await secureStorage.storeAuthData(
-  //       data.access_token,
-  //       data.refresh_token || refreshTokenValue,
-  //       user
-  //     );
-
-  //     console.log('Token refreshed successfully');
-  //     return true;
-  //   } catch (error) {
-  //     console.error('Token refresh error:', error);
-  //     await clearAuth();
-  //     return false;
-  //   }
-  // };
-
-
+  
   const handleTokenRefresh = async (): Promise<boolean> => {
     try {
       if (!refreshTokenValue) {
         console.log('No refresh token available');
-        // Don't auto-logout here - might just be missing refresh token
         return false;
       }
   
-      console.log('Attempting to refresh access token...');
+      console.log('🔄 Attempting to refresh access token...');
       
       const response = await fetchWithTimeout(
         API_ENDPOINTS.REFRESH_TOKEN,
@@ -752,7 +647,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         },
         10000
       );
-  
+      console.log("refresh response: ",response)
       if (!response.ok) {
         console.log('Token refresh failed, status:', response.status);
         const errorData = await response.json().catch(() => ({}));
@@ -760,40 +655,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         // Only clear auth if it's definitely invalid (401/403)
         if (response.status === 401 || response.status === 403) {
-          console.log('Refresh token invalid, clearing auth');
+          console.log('🚪 Refresh token invalid, clearing auth');
           await clearAuth();
           return false;
         }
         
-        // For other errors, keep current token and try again later
         return false;
       }
   
       const data = await response.json();
-      console.log('Token refreshed successfully');
+      console.log('✅ Token refreshed successfully');
       
-      // Update tokens
-      setToken(data.access_token);
-      if (data.refresh_token) {
-        setRefreshTokenValue(data.refresh_token);
-      }
+      // ✅ UPDATE ONLY ACCESS TOKEN (keep existing refresh token)
+      const newAccessToken = data.access_token;
+      
+      setToken(newAccessToken);
+      // refreshTokenValue stays the same - no update needed
   
-      // Save new tokens securely
+      // ✅ SAVE NEW ACCESS TOKEN WITH EXISTING REFRESH TOKEN
       await secureStorage.storeAuthData(
-        data.access_token,
-        data.refresh_token || refreshTokenValue,
+        newAccessToken,
+        refreshTokenValue, // ✅ Keep the same refresh token
         user
       );
   
-      console.log('New tokens stored successfully');
+      console.log('💾 New access token stored successfully');
       return true;
     } catch (error) {
-      console.error('Token refresh error:', error);
-      // Don't auto-logout on network errors
+      console.error('❌ Token refresh error:', error);
       return false;
     }
   };
-  
+
   const value: AuthContextType = {
     user,
     token,

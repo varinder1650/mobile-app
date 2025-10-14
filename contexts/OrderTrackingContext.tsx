@@ -1,6 +1,18 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode} from 'react';
 import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../config/apiConfig';
+
+// interface Order {
+//   id: string;
+//   // restaurant_name: string;
+//   order_status: string;
+//   estimated_delivery_time?: number;
+//   delivery_partner?: any;
+//   items?: any[];
+//   total_amount?: number;
+//   delivery_address?: any;
+//   // ... other order fields
+// }
 
 interface DeliveryPartner {
   name: string;
@@ -9,7 +21,7 @@ interface DeliveryPartner {
   deliveries?: number;
 }
 
-interface OrderStatusUpdate {
+interface Order {
   _id: string;
   id?: string;  
   order_status: 'preparing' | 'assigning' | 'assigned' | 'out_for_delivery' | 'delivered' | 'arrived';
@@ -44,6 +56,7 @@ interface OrderStatusUpdate {
     city: string;
     state: string;
     pincode: string;
+    phone: string;
   };
   status_change_history?: Array<{
     status: string;
@@ -59,120 +72,135 @@ interface OrderStatusUpdate {
 }
 
 interface OrderTrackingContextType {
-  activeOrder: OrderStatusUpdate | null;
+  activeOrder: Order | null;
   loading: boolean;
   error: string | null;
   refreshActiveOrder: () => Promise<void>;
+  dismissBanner: () => void;
+  resumePolling: () => void;
 }
 
 const OrderTrackingContext = createContext<OrderTrackingContextType | undefined>(undefined);
-
-export const useOrderTracking = () => {
-  const context = useContext(OrderTrackingContext);
-  if (!context) {
-    // Return default values instead of throwing during initialization
-    return {
-      activeOrder: null,
-      loading: false,
-      error: null,
-      refreshActiveOrder: async () => {},
-    };
-  }
-  return context;
-};
 
 interface OrderTrackingProviderProps {
   children: React.ReactNode;
 }
 
-export function OrderTrackingProvider({ children }: OrderTrackingProviderProps) {
+export function OrderTrackingProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth();
-  const [activeOrder, setActiveOrder] = useState<OrderStatusUpdate | null>(null);
+  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isPollingEnabled, setIsPollingEnabled] = useState(true);
+  const [dismissedOrderId, setDismissedOrderId] = useState<string | null>(null);
 
-  const fetchActiveOrder = useCallback(async () => {
-    if (!token) {
-      setActiveOrder(null);
-      setError(null);
+  const fetchActiveOrder = async () => {
+    if (!token || !isPollingEnabled) {
+      console.log('⏸️ Polling disabled or no token');
       return;
     }
 
     try {
-      setLoading(true);
-      setError(null);
-      
       const response = await fetch(`${API_BASE_URL}orders/active`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Active order data:', data);
-        
-        const activeStatuses = ['preparing', 'assigned', 'assigning', 'out_for_delivery', 'delivered'];
-
-        if (data && activeStatuses.includes(data.order_status)) {
-          setActiveOrder(data);
-          console.log('✅ Active order set:', data.order_status);
-        } else {
-          setActiveOrder(null);
-          console.log('ℹ️ Order status not active:', data?.order_status);
-        }
-      } else if (response.status === 404) {
-        // No active order - this is fine
+      if (response.status === 404) {
+        console.log('📦 No active orders');
         setActiveOrder(null);
         setError(null);
-        console.log('ℹ️ No active order found');
-      } else {
-        console.log('⚠️ Failed to fetch active order:', response.status);
-        setError(`Failed to fetch order: ${response.status}`);
-        setActiveOrder(null);
+        // Reset dismissed order when there's no active order
+        setDismissedOrderId(null);
+        return;
       }
-    } catch (error) {
-      console.error('❌ Error fetching active order:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
-      setActiveOrder(null);
-    } finally {
-      setLoading(false);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📦 Active order fetched:', data.id);
+
+      // Check if this is a new order (different from dismissed order)
+      if (dismissedOrderId && data.id !== dismissedOrderId) {
+        // New order detected, clear dismissed state and resume polling
+        setDismissedOrderId(null);
+        setIsPollingEnabled(true);
+      }
+
+      // Don't show the order if it was dismissed and is delivered
+      if (dismissedOrderId === data.id && data.order_status === 'delivered') {
+        console.log('🚫 Order dismissed, not showing banner');
+        return;
+      }
+
+      setActiveOrder(data);
+      setError(null);
+    } catch (err) {
+      console.log('⚠️ Failed to fetch active order:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
     }
-  }, [token]);
-
-  // Fetch on mount and set up polling
-  useEffect(() => {
-    fetchActiveOrder();
-    
-    // Poll every 30 seconds for updates
-    intervalRef.current = setInterval(() => {
-      fetchActiveOrder();
-    }, 30000);
-    
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [fetchActiveOrder]);
-
-  const value = {
-    activeOrder,
-    loading,
-    error,
-    refreshActiveOrder: fetchActiveOrder,
   };
 
+  const refreshActiveOrder = async () => {
+    setLoading(true);
+    await fetchActiveOrder();
+    setLoading(false);
+  };
+
+  const dismissBanner = () => {
+    console.log('❌ Banner dismissed for delivered order');
+    if (activeOrder?.order_status === 'delivered') {
+      setDismissedOrderId(activeOrder.id??null);
+      setActiveOrder(null);
+      // Keep polling to detect new orders, but don't show this dismissed order
+    }
+  };
+
+  const resumePolling = () => {
+    console.log('▶️ Resuming polling');
+    setIsPollingEnabled(true);
+    setDismissedOrderId(null);
+  };
+
+  // Polling effect
+  useEffect(() => {
+    if (!token || !isPollingEnabled) return;
+
+    // Initial fetch
+    fetchActiveOrder();
+
+    // Poll every 10 seconds
+    const interval = setInterval(() => {
+      fetchActiveOrder();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [token, isPollingEnabled, dismissedOrderId]);
+
   return (
-    <OrderTrackingContext.Provider value={value}>
+    <OrderTrackingContext.Provider
+      value={{
+        activeOrder,
+        loading,
+        error,
+        refreshActiveOrder,
+        dismissBanner,
+        resumePolling,
+      }}
+    >
       {children}
     </OrderTrackingContext.Provider>
   );
+}
+
+export function useOrderTracking() {
+  const context = useContext(OrderTrackingContext);
+  if (!context) {
+    throw new Error('useOrderTracking must be used within OrderTrackingProvider');
+  }
+  return context;
 }
