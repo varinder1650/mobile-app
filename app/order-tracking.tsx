@@ -1,3 +1,4 @@
+// order-tracking.tsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Linking,
   Alert,
   RefreshControl,
   Modal,
@@ -21,9 +21,17 @@ import { useAuth } from '../contexts/AuthContext';
 import { authenticatedFetch } from '../utils/authenticatedFetch';
 import { createApiUrl } from '../config/apiConfig';
 
+// Import modular components
+import {
+  OrderItemsModal,
+  TipSection,
+  DeliveryPartnerCard,
+} from '../components/order-tracking';
+
 export default function OrderTrackingScreen() {
   const { activeOrder, loading, refreshActiveOrder } = useOrderTracking();
   const { token } = useAuth();
+  
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTip, setSelectedTip] = useState<number | null>(null);
   const [customTipAmount, setCustomTipAmount] = useState('');
@@ -33,11 +41,11 @@ export default function OrderTrackingScreen() {
   const [submittingRating, setSubmittingRating] = useState(false);
   const [showOrderItemsModal, setShowOrderItemsModal] = useState(false);
   
-  // ✅ Countdown timer state in SECONDS
+  // Countdown timer state
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
   const [countdownInitialized, setCountdownInitialized] = useState<string | null>(null);
 
-  // ✅ Initialize countdown timer ONLY ONCE when order is first assigned
+  // Initialize countdown timer
   useEffect(() => {
     if (!activeOrder) {
       setTimeRemainingSeconds(null);
@@ -60,41 +68,38 @@ export default function OrderTrackingScreen() {
       return;
     }
   
-    console.log('⏱️ Raw estimated_delivery_time from backend:', activeOrder.estimated_delivery_time);
-    
-    // ✅ FIXED: Ensure estimated time is reasonable (between 10-60 minutes)
     let estimatedMinutes = 30;
+    const rawValue = activeOrder.estimated_delivery_time;
     
-    // If the number is unreasonably large, it might be in seconds or milliseconds
-    if (estimatedMinutes > 180) {
-      // Probably in seconds, convert to minutes
-      estimatedMinutes = Math.floor(estimatedMinutes / 60);
-      console.log('⏱️ Converted from seconds to minutes:', estimatedMinutes);
+    if (rawValue && typeof rawValue === 'number') {
+      if (rawValue >= 5 && rawValue <= 60) {
+        estimatedMinutes = Math.round(rawValue);
+      } else if (rawValue > 60 && rawValue < 3600) {
+        const convertedMinutes = Math.round(rawValue / 60);
+        if (convertedMinutes >= 5 && convertedMinutes <= 60) {
+          estimatedMinutes = convertedMinutes;
+        }
+      }
     }
     
-    // Cap between 10 and 60 minutes
-    estimatedMinutes = Math.max(10, Math.min(estimatedMinutes, 60));
-    
-    console.log('⏱️ Final estimated minutes:', estimatedMinutes);
-    
-    // Convert to seconds for countdown
     let remainingSeconds = estimatedMinutes * 60;
     
-    // Adjust for elapsed time
     if (activeOrder.assigned_at) {
-      const assignedTime = new Date(activeOrder.assigned_at).getTime();
-      const currentTime = new Date().getTime();
-      const elapsedSeconds = Math.floor((currentTime - assignedTime) / 1000);
-      remainingSeconds = Math.max(0, remainingSeconds - elapsedSeconds);
+      try {
+        const assignedTime = new Date(activeOrder.assigned_at).getTime();
+        const currentTime = new Date().getTime();
+        const elapsedSeconds = Math.floor((currentTime - assignedTime) / 1000);
+        remainingSeconds = Math.max(0, remainingSeconds - elapsedSeconds);
+      } catch (error) {
+        console.error('⏱️ Error calculating time:', error);
+      }
     }
     
     setTimeRemainingSeconds(remainingSeconds);
     setCountdownInitialized(orderId);
-    
-    console.log('⏱️ Countdown initialized to:', Math.floor(remainingSeconds / 60), 'mins', remainingSeconds % 60, 'secs');
   }, [activeOrder?.id, activeOrder?.order_status]);
 
-  // ✅ Countdown timer effect - updates EVERY SECOND
+  // Countdown update
   useEffect(() => {
     if (timeRemainingSeconds === null || timeRemainingSeconds <= 0) {
       return;
@@ -107,14 +112,11 @@ export default function OrderTrackingScreen() {
         }
         return prev - 1;
       });
-    }, 1000); // ✅ Update every 1 second
+    }, 1000);
 
-    return () => {
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [timeRemainingSeconds]);
 
-  // ✅ Format countdown display as MM:SS
   const formatCountdown = () => {
     if (timeRemainingSeconds === null) {
       return `${activeOrder?.estimated_delivery_time || 30} mins`;
@@ -127,7 +129,6 @@ export default function OrderTrackingScreen() {
     const minutes = Math.floor(timeRemainingSeconds / 60);
     const seconds = timeRemainingSeconds % 60;
     
-    // Format as MM:SS
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
@@ -137,18 +138,9 @@ export default function OrderTrackingScreen() {
     setRefreshing(false);
   };
 
-  const handleCallDeliveryPartner = () => {
-    if (activeOrder?.delivery_partner?.phone) {
-      Linking.openURL(`tel:${activeOrder.delivery_partner.phone}`);
-    } else {
-      Alert.alert('Info', 'Delivery partner contact not available yet');
-    }
-  };
-
-  // ✅ Handle tip selection
+  // Handle tip selection
   const handleTipSelection = (amount: number) => {
     if (amount === 0) {
-      // Show custom tip modal
       setShowCustomTipModal(true);
     } else {
       setSelectedTip(amount);
@@ -156,7 +148,6 @@ export default function OrderTrackingScreen() {
     }
   };
 
-  // ✅ Confirm and save tip
   const confirmAndSaveTip = (amount: number) => {
     Alert.alert(
       'Add Tip',
@@ -171,7 +162,6 @@ export default function OrderTrackingScreen() {
     );
   };
 
-  // ✅ Save tip to backend
   const saveTip = async (amount: number) => {
     if (!activeOrder) return;
 
@@ -191,7 +181,6 @@ export default function OrderTrackingScreen() {
       if (response.ok) {
         Alert.alert('Success', `₹${amount} tip added successfully! Thank you for your generosity.`);
         setSelectedTip(amount);
-        // Refresh order to get updated data
         await refreshActiveOrder();
       } else {
         const errorData = await response.json();
@@ -207,7 +196,6 @@ export default function OrderTrackingScreen() {
     }
   };
 
-  // ✅ Handle custom tip submission
   const handleCustomTipSubmit = () => {
     const amount = parseInt(customTipAmount);
     
@@ -285,7 +273,7 @@ export default function OrderTrackingScreen() {
     activeOrder.delivery_partner && 
     ['assigned', 'out_for_delivery', 'delivered'].includes(activeOrder.order_status);
 
-  // Render custom tip modal
+  // Custom tip modal
   const renderCustomTipModal = () => (
     <Modal
       animationType="slide"
@@ -342,96 +330,6 @@ export default function OrderTrackingScreen() {
     </Modal>
   );
 
-  // Render order items modal
-  const renderOrderItemsModal = () => (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={showOrderItemsModal}
-      onRequestClose={() => setShowOrderItemsModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <Pressable 
-          style={styles.modalBackdrop} 
-          onPress={() => setShowOrderItemsModal(false)}
-        />
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalTitleContainer}>
-              <Text style={styles.modalTitle}>Order Items</Text>
-              <TouchableOpacity
-                onPress={() => setShowOrderItemsModal(false)}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <ScrollView style={styles.modalItemsList} showsVerticalScrollIndicator={false}>
-            <View style={styles.itemsContainer}>
-              {activeOrder?.items?.map((item: any, index: number) => (
-                <View key={index} style={styles.orderItem}>
-                  <View style={styles.itemHeader}>
-                    <View style={styles.vegIconSmall}>
-                      <View style={styles.vegDotSmall} />
-                    </View>
-                    <Text style={styles.itemName}>{item.product_name}</Text>
-                  </View>
-                  <View style={styles.itemDetails}>
-                    <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
-                    <Text style={styles.itemPrice}>₹{(item.price * item.quantity).toFixed(2)}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.priceBreakdown}>
-              <View style={styles.priceRowModal}>
-                <Text style={styles.priceLabelModal}>Item Total</Text>
-                <Text style={styles.priceValueModal}>₹{activeOrder?.subtotal?.toFixed(2) || '0.00'}</Text>
-              </View>
-              
-              {(activeOrder?.delivery_charge ?? 0) > 0 && (
-                <View style={styles.priceRowModal}>
-                  <Text style={styles.priceLabelModal}>Delivery Charge</Text>
-                  <Text style={styles.priceValueModal}>₹{activeOrder?.delivery_charge?.toFixed(2)}</Text>
-                </View>
-              )}
-              
-              {(activeOrder?.tax ?? 0) > 0 && (
-                <View style={styles.priceRowModal}>
-                  <Text style={styles.priceLabelModal}>Taxes & Fees</Text>
-                  <Text style={styles.priceValueModal}>₹{activeOrder?.tax?.toFixed(2)}</Text>
-                </View>
-              )}
-              
-              {(activeOrder?.app_fee ?? 0) > 0 && (
-                <View style={styles.priceRowModal}>
-                  <Text style={styles.priceLabelModal}>Platform Fee</Text>
-                  <Text style={styles.priceValueModal}>₹{activeOrder?.app_fee?.toFixed(2)}</Text>
-                </View>
-              )}
-              
-              {(activeOrder?.promo_discount ?? 0) > 0 && (
-                <View style={[styles.priceRowModal, styles.discountRow]}>
-                  <Text style={styles.discountLabel}>Discount</Text>
-                  <Text style={styles.discountValue}>-₹{activeOrder?.promo_discount?.toFixed(2)}</Text>
-                </View>
-              )}
-              
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total Amount</Text>
-                <Text style={styles.totalValue}>₹{activeOrder?.total_amount?.toFixed(2) || '0.00'}</Text>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-
   if (loading && !activeOrder) {
     return (
       <SafeAreaView style={styles.container}>
@@ -470,23 +368,22 @@ export default function OrderTrackingScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={[styles.header, { backgroundColor: getStatusColor() }]}>
         <SafeAreaView edges={['top']}>
           <View style={styles.headerContent}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
               <Ionicons name="chevron-down" size={28} color="#fff" />
             </TouchableOpacity>
-            {/* <Text style={styles.headerTitle}>{activeOrder.restaurant_name || 'Restaurant'}</Text> */}
             <View style={{ width: 32 }} />
           </View>
 
-          {/* Status Section with Countdown */}
           <View style={styles.statusSection}>
             <Text style={styles.statusTitle}>{getStatusText(activeOrder.order_status)}</Text>
             <View style={styles.deliveryInfo}>
               <Ionicons name="time-outline" size={18} color="#fff" />
               <Text style={styles.deliveryText}>
-                Arriving in {formatCountdown()} {timeRemainingSeconds !== null && timeRemainingSeconds > 0 && '• On time'}
+                Arriving in {formatCountdown()}
               </Text>
               <TouchableOpacity onPress={onRefresh} style={styles.refreshIcon}>
                 <Ionicons name="refresh" size={20} color="#fff" />
@@ -503,115 +400,21 @@ export default function OrderTrackingScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Tip Section - Show when assigning or assigned (if tip not already added) */}
-        {['assigning', 'assigned'].includes(activeOrder.order_status) && !activeOrder.tip_amount && (
-          <View style={styles.tipSection}>
-            <View style={styles.tipHeader}>
-              <View style={styles.tipIconContainer}>
-                <Ionicons name="person-circle-outline" size={40} color="#E74C3C" />
-              </View>
-              <View style={styles.tipTextContainer}>
-                <Text style={styles.tipTitle}>
-                  {activeOrder.order_status === 'assigning' 
-                    ? 'Assigning delivery partner shortly'
-                    : 'Support your delivery partner'}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.tipDescription}>
-              Make their day by leaving a tip. 100% of the amount will go to them after delivery
-            </Text>
-            <View style={styles.tipOptions}>
-              {[20, 30, 50].map((amount) => (
-                <TouchableOpacity
-                  key={amount}
-                  style={[
-                    styles.tipButton, 
-                    selectedTip === amount && styles.tipButtonSelected,
-                    savingTip && styles.tipButtonDisabled
-                  ]}
-                  onPress={() => handleTipSelection(amount)}
-                  disabled={savingTip}
-                >
-                  <Text style={[styles.tipButtonText, selectedTip === amount && styles.tipButtonTextSelected]}>
-                    ₹{amount}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={[
-                  styles.tipButton, 
-                  selectedTip !== null && selectedTip !== 20 && selectedTip !== 30 && selectedTip !== 50 && styles.tipButtonSelected,
-                  savingTip && styles.tipButtonDisabled
-                ]}
-                onPress={() => handleTipSelection(0)}
-                disabled={savingTip}
-              >
-                <Text style={[
-                  styles.tipButtonText, 
-                  selectedTip !== null && selectedTip !== 20 && selectedTip !== 30 && selectedTip !== 50 && styles.tipButtonTextSelected
-                ]}>
-                  Other
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {savingTip && (
-              <View style={styles.savingTipIndicator}>
-                <ActivityIndicator size="small" color="#00A65A" />
-                <Text style={styles.savingTipText}>Adding tip...</Text>
-              </View>
-            )}
-          </View>
-        )}
+        {/* Tip Section */}
+        <TipSection
+          selectedTip={selectedTip}
+          onSelectTip={handleTipSelection}
+          saving={savingTip}
+          orderStatus={activeOrder.order_status}
+          tipAmount={activeOrder.tip_amount}
+        />
 
-        {/* Show tip added confirmation */}
-        {activeOrder.tip_amount && activeOrder.tip_amount > 0 && (
-          <View style={styles.tipAddedSection}>
-            <Ionicons name="heart" size={24} color="#E74C3C" />
-            <Text style={styles.tipAddedText}>
-              You added ₹{activeOrder.tip_amount} tip. Thank you for your generosity! 💚
-            </Text>
-          </View>
-        )}
-
-        {/* Delivery Partner Section */}
+        {/* Delivery Partner */}
         {showDeliveryPartner && (
-          <View style={styles.deliveryPartnerSection}>
-            <View style={styles.partnerHeader}>
-              <View style={styles.partnerAvatar}>
-                <Ionicons name="person" size={28} color="#fff" />
-              </View>
-              <View style={styles.partnerInfo}>
-                <Text style={styles.partnerLabel}>Your Delivery Partner</Text>
-                <Text style={styles.partnerName}>
-                  {activeOrder.delivery_partner.name || 'Delivery Partner'}
-                </Text>
-                {activeOrder.delivery_partner.rating && (
-                  <View style={styles.partnerRatingContainer}>
-                    <Ionicons name="star" size={14} color="#FFD700" />
-                    <Text style={styles.partnerRatingText}>
-                      {activeOrder.delivery_partner.rating.toFixed(1)}
-                    </Text>
-                    {activeOrder.delivery_partner.deliveries > 0 && (
-                      <Text style={styles.deliveriesText}>
-                        • {activeOrder.delivery_partner.deliveries} deliveries
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-              <TouchableOpacity
-                style={styles.callPartnerButton}
-                onPress={handleCallDeliveryPartner}
-              >
-                <Ionicons name="call" size={20} color="#fff" />
-                <Text style={styles.callButtonText}>Call</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <DeliveryPartnerCard partner={activeOrder.delivery_partner} />
         )}
 
-        {/* Delivery Details Card */}
+        {/* Delivery Details */}
         <View style={styles.deliveryDetailsCard}>
           <View style={styles.deliveryDetailsHeader}>
             <Text style={styles.deliveryDetailsTitle}>
@@ -648,7 +451,10 @@ export default function OrderTrackingScreen() {
         <View style={styles.restaurantCard}>
           <TouchableOpacity 
             style={styles.orderDetailsRow}
-            onPress={() => setShowOrderItemsModal(true)}
+            onPress={() => {
+              console.log('🔍 Opening items modal with data:', activeOrder?.items);
+              setShowOrderItemsModal(true);
+            }}
             activeOpacity={0.7}
           >
             <Ionicons name="receipt-outline" size={24} color="#666" />
@@ -667,7 +473,7 @@ export default function OrderTrackingScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Rate Delivery Partner */}
+        {/* Rate Partner */}
         {activeOrder.order_status === 'delivered' && showDeliveryPartner && (
           <View style={styles.ratePartnerSection}>
             <View style={styles.ratePartnerHeader}>
@@ -727,8 +533,12 @@ export default function OrderTrackingScreen() {
       </ScrollView>
 
       {/* Order Items Modal */}
-      {renderOrderItemsModal()}
-      
+      <OrderItemsModal
+        visible={showOrderItemsModal}
+        onClose={() => setShowOrderItemsModal(false)}
+        order={activeOrder}
+      />
+
       {/* Custom Tip Modal */}
       {renderCustomTipModal()}
     </View>
@@ -741,7 +551,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
   },
   header: {
-    backgroundColor: '#00A65A',
     paddingBottom: 20,
   },
   headerContent: {
@@ -753,13 +562,6 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 4,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    flex: 1,
-    textAlign: 'center',
   },
   statusSection: {
     alignItems: 'center',
@@ -830,148 +632,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  tipSection: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    padding: 16,
-  },
-  tipHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  tipIconContainer: {
-    marginRight: 12,
-  },
-  tipTextContainer: {
-    flex: 1,
-  },
-  tipTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  tipDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  tipOptions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  tipButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-  },
-  tipButtonSelected: {
-    backgroundColor: '#00A65A',
-  },
-  tipButtonDisabled: {
-    opacity: 0.5,
-  },
-  tipButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  tipButtonTextSelected: {
-    color: '#fff',
-  },
-  savingTipIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    gap: 8,
-  },
-  savingTipText: {
-    fontSize: 14,
-    color: '#00A65A',
-  },
-  tipAddedSection: {
-    backgroundColor: '#FFE8E8',
-    marginTop: 8,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  tipAddedText: {
-    fontSize: 14,
-    color: '#E74C3C',
-    fontWeight: '500',
-    flex: 1,
-  },
-  deliveryPartnerSection: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    padding: 16,
-  },
-  partnerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  partnerAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  partnerInfo: {
-    flex: 1,
-  },
-  partnerLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 2,
-  },
-  partnerName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  partnerRatingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  partnerRatingText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 4,
-  },
-  deliveriesText: {
-    fontSize: 12,
-    color: '#999',
-    marginLeft: 4,
-  },
-  callPartnerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#34C759',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    shadowColor: '#34C759',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  callButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
   },
   deliveryDetailsCard: {
     backgroundColor: '#FFF9E6',
@@ -1132,7 +792,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1145,151 +804,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    paddingBottom: 20,
-  },
-  modalHeader: {
-    paddingTop: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#ccc',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  modalTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-  },
-  modalCloseButton: {
-    padding: 4,
-  },
-  modalItemsList: {
-    flex: 1,
-  },
-  itemsContainer: {
-    padding: 16,
-  },
-  orderItem: {
-    backgroundColor: '#f9f9f9',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  itemHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  vegIconSmall: {
-    width: 14,
-    height: 14,
-    borderWidth: 1.5,
-    borderColor: '#00A65A',
-    borderRadius: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  vegDotSmall: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#00A65A',
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-  },
-  itemDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  itemQuantity: {
-    fontSize: 14,
-    color: '#666',
-  },
-  itemPrice: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  priceBreakdown: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  priceRowModal: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-  },
-  priceLabelModal: {
-    fontSize: 14,
-    color: '#666',
-  },
-  priceValueModal: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  discountRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    marginTop: 4,
-    paddingTop: 12,
-  },
-  discountLabel: {
-    fontSize: 14,
-    color: '#4CAF50',
-    fontWeight: '500',
-  },
-  discountValue: {
-    fontSize: 14,
-    color: '#4CAF50',
-    fontWeight: '600',
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    marginTop: 8,
-    borderTopWidth: 2,
-    borderTopColor: '#007AFF',
-  },
-  totalLabel: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#333',
-  },
-  totalValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#007AFF',
-  },
-  // Custom tip modal styles
   customTipModal: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Alert, Platform} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Order, TabType } from '../../types/delivery.types';
 import { formatDate, getStatusColor } from '../../utils/dateUtils';
@@ -22,6 +22,67 @@ const OrderCard: React.FC<OrderCardProps> = ({
   handleMarkAsDelivered,
   openOrderDetails,
 }) => {
+  // ✅ FIX: Handle navigation to customer address
+  const handleGetDirections = () => {
+    const address = item.delivery_address;
+    
+    if (!address) {
+      Alert.alert('Error', 'Delivery address not available');
+      return;
+    }
+
+    // Check if coordinates are available
+    if (address.latitude && address.longitude) {
+      // Use coordinates for accurate navigation
+      const url = Platform.select({
+        ios: `maps://app?daddr=${address.latitude},${address.longitude}`,
+        android: `google.navigation:q=${address.latitude},${address.longitude}`,
+      });
+
+      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${address.latitude},${address.longitude}`;
+
+      Linking.canOpenURL(url).then((supported) => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Linking.openURL(fallbackUrl);
+        }
+      }).catch(() => {
+        Linking.openURL(fallbackUrl);
+      });
+    } else {
+      // Fallback: Use address string
+      const addressString = `${address.address}, ${address.city}, ${address.state} ${address.pincode}`;
+      const url = Platform.select({
+        ios: `maps://app?daddr=${encodeURIComponent(addressString)}`,
+        android: `google.navigation:q=${encodeURIComponent(addressString)}`,
+      });
+
+      const fallbackUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressString)}`;
+
+      Linking.canOpenURL(url).then((supported) => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          Linking.openURL(fallbackUrl);
+        }
+      }).catch(() => {
+        Linking.openURL(fallbackUrl);
+      });
+    }
+  };
+
+  // ✅ FIX: Handle calling customer
+  const handleCallCustomer = () => {
+    const phone = item.delivery_address?.phone || item.delivery_address?.mobile_number;
+    
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    } else {
+      Alert.alert('Error', 'Customer phone number not available');
+    }
+  };
+
   return (
     <TouchableOpacity
       style={styles.orderCard}
@@ -69,6 +130,25 @@ const OrderCard: React.FC<OrderCardProps> = ({
               <Text style={styles.orderAmount}>₹{(item.total_amount || 0).toFixed(2)}</Text>
             </View>
           )}
+
+          {/* ✅ NEW: Action Buttons for Assigned Orders */}
+          <View style={styles.actionButtonsRow}>
+            <TouchableOpacity
+              style={styles.directionsButton}
+              onPress={handleGetDirections}
+            >
+              <Ionicons name="navigate" size={18} color="#fff" />
+              <Text style={styles.directionsButtonText}>Directions</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.callButton}
+              onPress={handleCallCustomer}
+            >
+              <Ionicons name="call" size={18} color="#fff" />
+              <Text style={styles.callButtonText}>Call</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
