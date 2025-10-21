@@ -5,7 +5,7 @@ export interface Order {
     id: string;
     order_status: string;
     total_amount: number;
-    created_at: string;
+    created_at_ist: string;
     payment_method: string;
     user_info?: {
       name: string;

@@ -71,6 +71,7 @@ export default function AddressScreen() {
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(false);
+  const [settingDefault, setSettingDefault] = useState<string | null>(null); // ✅ Track which address is being set as default
   
   // General states
   const [loading, setLoading] = useState(false);
@@ -153,7 +154,7 @@ export default function AddressScreen() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ latitude: lat, longitude: lng }),
-        signal: AbortSignal.timeout(10000), // 10 second timeout
+        signal: AbortSignal.timeout(10000),
       });
 
       if (response.ok) {
@@ -252,18 +253,16 @@ export default function AddressScreen() {
 
     setLoading(true);
     try {
-      // ✅ Include coordinates in the address data
       const addressData = {
         ...manualAddress,
-        latitude: latitude || 0,  // ✅ Save coordinates
-        longitude: longitude || 0,  // ✅ Save coordinates
+        latitude: latitude || 0,
+        longitude: longitude || 0,
       };
 
-      console.log('💾 Saving address with coordinates:', {
+      console.log('💾 Saving address:', {
         street: addressData.street,
         city: addressData.city,
-        latitude: addressData.latitude,
-        longitude: addressData.longitude,
+        hasCoordinates: !!(latitude && longitude),
       });
 
       const response = await authenticatedFetch(API_ENDPOINTS.USER_ADDRESS, {
@@ -275,7 +274,21 @@ export default function AddressScreen() {
       });
 
       if (response.ok) {
-        Alert.alert('Success', 'Address saved successfully!');
+        const savedAddress = await response.json();
+        
+        if (savedAddress.latitude && savedAddress.longitude && (!latitude || !longitude)) {
+          Alert.alert(
+            'Success', 
+            'Address saved successfully with location coordinates! You can now get directions to this address.'
+          );
+        } else if (!savedAddress.latitude || !savedAddress.longitude) {
+          Alert.alert(
+            'Partially Saved',
+            'Address saved, but we couldn\'t find exact coordinates. You can still use this address for delivery.'
+          );
+        } else {
+          Alert.alert('Success', 'Address saved successfully!');
+        }
         
         await fetchSavedAddresses();
         
@@ -290,7 +303,6 @@ export default function AddressScreen() {
           mobile_number: user?.phone?.replace('+91', '') || '',
         });
         
-        // Clear location
         setLatitude(null);
         setLongitude(null);
         setLocationAddress('');
@@ -352,7 +364,10 @@ export default function AddressScreen() {
     }
   };
 
-  const selectAndSetDefault = async (address: SavedAddress) => {
+  // ✅ Use Address - Set as default and navigate back if from checkout
+  const useAddress = async (address: SavedAddress) => {
+    setSettingDefault(address._id);
+    
     try {
       const response = await authenticatedFetch(
         `${API_ENDPOINTS.USER_ADDRESS}/${address._id}/set-default`,
@@ -365,28 +380,41 @@ export default function AddressScreen() {
         setSelectedAddress(address);
         
         if (isFromCheckout) {
+          // Navigate back to checkout with address data
           const fullAddress = `${address.street}, ${address.city}, ${address.state}, ${address.pincode}`;
-          router.back();
-          setTimeout(() => {
-            router.setParams({
-              addressId: address._id,
-              addressLabel: address.label,
-              address: address.street,
-              city: address.city,
-              state: address.state,
-              pincode: address.pincode,
-              mobile_number: address.mobile_number || '',
-              phone: address.mobile_number || '',
-              landmark: address.landmark || '',
-              fullAddress: fullAddress,
-              // ✅ Include coordinates
-              latitude: address.latitude?.toString() || '',
-              longitude: address.longitude?.toString() || '',
-              is_default: address.is_default ? 'true' : 'false',
-            });
-          }, 100);
+          
+          Alert.alert(
+            'Address Selected',
+            'Your delivery address has been updated.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  router.back();
+                  setTimeout(() => {
+                    router.setParams({
+                      addressId: address._id,
+                      addressLabel: address.label,
+                      address: address.street,
+                      city: address.city,
+                      state: address.state,
+                      pincode: address.pincode,
+                      mobile_number: address.mobile_number || '',
+                      phone: address.mobile_number || '',
+                      landmark: address.landmark || '',
+                      fullAddress: fullAddress,
+                      latitude: address.latitude?.toString() || '',
+                      longitude: address.longitude?.toString() || '',
+                      is_default: 'true',
+                    });
+                  }, 100);
+                }
+              }
+            ]
+          );
         } else {
-          Alert.alert('Success', 'Default address updated successfully');
+          // Just set as default
+          Alert.alert('Success', `${address.label} is now your default address`);
           await fetchSavedAddresses();
         }
       } else {
@@ -395,6 +423,8 @@ export default function AddressScreen() {
     } catch (error) {
       console.error('Error setting default address:', error);
       Alert.alert('Error', 'Network error. Please try again.');
+    } finally {
+      setSettingDefault(null);
     }
   };
 
@@ -526,74 +556,121 @@ export default function AddressScreen() {
     );
   };
 
-  // Render saved address card
-  const renderSavedAddress = ({ item }: { item: SavedAddress }) => (
-    <View style={[
-      styles.savedAddressCard,
-      selectedAddress?._id === item._id && styles.selectedAddressCard
-    ]}>
-      <TouchableOpacity
-        style={styles.addressContent}
-        onPress={() => setSelectedAddress(item)}
-      >
-        <View style={styles.savedAddressHeader}>
-          <View style={styles.addressLabelContainer}>
-            <Ionicons 
-              name={item.label === 'Home' ? 'home' : item.label === 'Office' ? 'business' : 'location'} 
-              size={20} 
-              color="#007AFF" />
-            <Text style={styles.addressLabel}>{item.label}</Text>
-            {item.is_default && (
-              <View style={styles.defaultBadge}>
-                <Text style={styles.defaultText}>Default</Text>
-              </View>
+  // ✅ Render saved address card with "Use Address" button
+  const renderSavedAddress = ({ item }: { item: SavedAddress }) => {
+    const isSettingThisDefault = settingDefault === item._id;
+    
+    return (
+      <View style={[
+        styles.savedAddressCard,
+        selectedAddress?._id === item._id && styles.selectedAddressCard
+      ]}>
+        <TouchableOpacity
+          style={styles.addressContent}
+          onPress={() => setSelectedAddress(item)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.savedAddressHeader}>
+            <View style={styles.addressLabelContainer}>
+              <Ionicons 
+                name={item.label === 'Home' ? 'home' : item.label === 'Office' ? 'business' : 'location'} 
+                size={20} 
+                color="#007AFF" 
+              />
+              <Text style={styles.addressLabel}>{item.label}</Text>
+              {item.is_default && (
+                <View style={styles.defaultBadge}>
+                  <Text style={styles.defaultText}>Default</Text>
+                </View>
+              )}
+            </View>
+            {selectedAddress?._id === item._id && (
+              <Ionicons name="checkmark-circle" size={20} color="#007AFF" />
             )}
           </View>
-          {selectedAddress?._id === item._id && (
-            <Ionicons name="checkmark-circle" size={20} color="#007AFF" />
-          )}
-        </View>
-        
-        <Text style={styles.savedAddressText} numberOfLines={2}>
-          {`${item.street}, ${item.city}, ${item.state}, ${item.pincode}`}
-        </Text>
-        
-        {item.landmark && (
-          <Text style={styles.landmarkText}>Near: {item.landmark}</Text>
-        )}
-        {item.mobile_number && (
-          <Text style={styles.mobileText}>📱 {item.mobile_number}</Text>
-        )}
-        {item.latitude && item.longitude && (
-          <Text style={styles.coordsText}>
-            📍 {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
+          
+          <Text style={styles.savedAddressText} numberOfLines={2}>
+            {item.street}, {item.city}, {item.state}, {item.pincode}
           </Text>
-        )}
-      </TouchableOpacity>
-      <View style={styles.addressActions}>
-        {item.latitude && item.longitude && (
+          
+          {item.landmark && (
+            <Text style={styles.landmarkText}>
+              Near: {item.landmark}
+            </Text>
+          )}
+          {item.mobile_number && (
+            <Text style={styles.mobileText}>
+              📱 {item.mobile_number}
+            </Text>
+          )}
+          {item.latitude && item.longitude && (
+            <Text style={styles.coordsText}>
+              📍 {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
+            </Text>
+          )}
+        </TouchableOpacity>
+        
+        {/* ✅ Action buttons section */}
+        <View style={styles.addressActionsContainer}>
+          {/* ✅ Use Address Button - Primary action */}
           <TouchableOpacity
-            style={styles.directionsButton}
-            onPress={() => openMapsWithAddress(item)}
+            style={[
+              styles.useAddressButton,
+              item.is_default && styles.useAddressButtonDefault,
+              isSettingThisDefault && styles.useAddressButtonLoading
+            ]}
+            onPress={() => useAddress(item)}
+            disabled={isSettingThisDefault}
           >
-            <Ionicons name="navigate" size={16} color="#007AFF" />
+            {isSettingThisDefault ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons 
+                  name={item.is_default ? "checkmark-circle" : "location"} 
+                  size={16} 
+                  color="#fff" 
+                />
+                <Text style={styles.useAddressButtonText}>
+                  {item.is_default ? 'Default Address' : 'Use Address'}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => editAddress(item)}
-        >
-          <Ionicons name="create-outline" size={16} color="#007AFF" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => deleteAddress(item._id)}
-        >
-          <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-        </TouchableOpacity>
+          
+          {/* ✅ Secondary action buttons */}
+          <View style={styles.secondaryActions}>
+            {item.latitude && item.longitude && (
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => openMapsWithAddress({
+                  latitude: item.latitude,
+                  longitude: item.longitude,
+                  label: item.label,
+                  street: item.street,
+                  city: item.city,
+                })}
+              >
+                <Ionicons name="navigate" size={18} color="#007AFF" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => editAddress(item)}
+            >
+              <Ionicons name="create-outline" size={18} color="#007AFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => deleteAddress(item._id)}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -675,15 +752,6 @@ export default function AddressScreen() {
                     <Text style={styles.addFirstAddressText}>Add Address</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-
-              {selectedAddress && isFromCheckout && (
-                <TouchableOpacity 
-                  style={styles.selectButton}
-                  onPress={() => selectAndSetDefault(selectedAddress)}
-                >
-                  <Text style={styles.selectButtonText}>Use Selected Address</Text>
-                </TouchableOpacity>
               )}
             </View>
           )}
@@ -800,11 +868,18 @@ export default function AddressScreen() {
                   </View>
                 </View>
 
-                {latitude && longitude && (
+                {latitude && longitude ? (
                   <View style={styles.coordinatesInfo}>
                     <Ionicons name="location" size={16} color="#4CAF50" />
                     <Text style={styles.coordinatesText}>
-                      Location coordinates will be saved: {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                      ✅ Location coordinates detected: {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.coordinatesInfo}>
+                    <Ionicons name="information-circle" size={16} color="#2196F3" />
+                    <Text style={[styles.coordinatesText, { color: '#1976D2' }]}>
+                      💡 We'll automatically find coordinates for your address to enable directions
                     </Text>
                   </View>
                 )}
@@ -873,10 +948,6 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 8,
-  },
-  directionsButton: {
-    padding: 8,
-    marginRight: 4,
   },
   headerTitle: {
     fontSize: 18,
@@ -1026,15 +1097,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e0e0e0',
-    flexDirection: 'row',
-    alignItems: 'center',
+    overflow: 'hidden',
   },
   selectedAddressCard: {
     borderColor: '#007AFF',
     backgroundColor: '#f0f8ff',
   },
   addressContent: {
-    flex: 1,
     padding: 16,
   },
   savedAddressHeader: {
@@ -1090,16 +1159,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
-  addressActions: {
+  // ✅ New styles for action buttons layout
+  addressActionsContainer: {
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    padding: 12,
+  },
+  useAddressButton: {
     flexDirection: 'row',
-    paddingRight: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
   },
-  editButton: {
-    padding: 8,
-    marginRight: 8,
+  useAddressButtonDefault: {
+    backgroundColor: '#4CAF50',
   },
-  deleteButton: {
+  useAddressButtonLoading: {
+    backgroundColor: '#999',
+  },
+  useAddressButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  iconButton: {
     padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+    minWidth: 40,
+    alignItems: 'center',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -1123,18 +1221,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   addFirstAddressText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  selectButton: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  selectButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',

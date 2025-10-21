@@ -92,7 +92,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
       <View style={styles.orderHeader}>
         <View style={styles.orderInfo}>
           <Text style={styles.orderId}>Order #{item.id.toUpperCase()}</Text>
-          <Text style={styles.orderDate}>{formatDate(item.created_at)}</Text>
+          <Text style={styles.orderDate}>{formatDate(item.created_at_ist)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.order_status) }]}>
           <Text style={styles.statusText}>{item.order_status}</Text>

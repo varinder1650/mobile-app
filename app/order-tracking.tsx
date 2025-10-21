@@ -1,4 +1,4 @@
-import React, { useState, useRef,useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,34 @@ import {
   DeliveryPartnerCard,
 } from '../components/order-tracking';
 
+const parseTimestamp = (dateString: string | Date): number => {
+  try {
+    // const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    let date: Date;
+      if (typeof dateString === 'string') {
+        if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-')) {
+          date = new Date(`${dateString}+05:30`); 
+       } else {
+          date = new Date(dateString);
+        }
+      } else {
+        date = dateString;
+      }
+    const timestamp = date.getTime();
+    
+    console.log('🕐 Parsing timestamp:', {
+      input: dateString,
+      parsed: new Date(timestamp).toISOString(),
+      timestamp
+    });
+    
+    return timestamp;
+  } catch (error) {
+    console.error('❌ Error parsing timestamp:', error);
+    return Date.now();
+  }
+};
+
 export default function OrderTrackingScreen() {
   const { activeOrder, loading, refreshActiveOrder } = useOrderTracking();
   const { token } = useAuth();
@@ -41,132 +69,187 @@ export default function OrderTrackingScreen() {
   const [showOrderItemsModal, setShowOrderItemsModal] = useState(false);
   
   // Countdown timer state
-  const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
-  const [countdownInitialized, setCountdownInitialized] = useState<string | null>(null);
+  // const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
+  // const [countdownInitialized, setCountdownInitialized] = useState<string | null>(null);
+  // const assignedTimeRef = useRef<number | null>(null);
 
-  // Initialize countdown timer
+  // // ✅ Initialize countdown timer
   // useEffect(() => {
   //   if (!activeOrder) {
   //     setTimeRemainingSeconds(null);
   //     setCountdownInitialized(null);
+  //     assignedTimeRef.current = null;
   //     return;
   //   }
-  
+
   //   const orderId = activeOrder.id;
   //   const orderStatus = activeOrder.order_status;
     
+  //   // Only show countdown for these statuses
   //   const validStatuses = ['assigned', 'out_for_delivery'];
-    
+
   //   if (!validStatuses.includes(orderStatus)) {
   //     setTimeRemainingSeconds(null);
   //     setCountdownInitialized(null);
+  //     assignedTimeRef.current = null;
   //     return;
   //   }
-  
+
+  //   // Prevent restarting timer for the same order
   //   if (countdownInitialized === orderId) {
   //     return;
   //   }
-  
-  //   let estimatedMinutes = 30;
-  //   const rawValue = activeOrder.estimated_delivery_time;
-  //   console.log("raw time: ",rawValue)
-  //   if (rawValue && typeof rawValue === 'number') {
-  //     if (rawValue >= 5 && rawValue <= 60) {
-  //       estimatedMinutes = Math.round(rawValue);
-  //     } else if (rawValue > 60 && rawValue < 3600) {
-  //       const convertedMinutes = Math.round(rawValue / 60);
-  //       if (convertedMinutes >= 5 && convertedMinutes <= 60) {
-  //         estimatedMinutes = convertedMinutes;
-  //       }
+
+  //   // ✅ Set assigned time when status becomes "assigned"
+  //   if (orderStatus === 'assigned' && !assignedTimeRef.current) {
+  //     // Use assigned_at if available, otherwise use created_at
+  //     const assignedTimeString = activeOrder.assigned_at;
+      
+  //     if (assignedTimeString) {
+  //       assignedTimeRef.current = parseTimestamp(assignedTimeString);
+  //     } else {
+  //       assignedTimeRef.current = Date.now();
   //     }
+
+  //     console.log('⏱️ Order assigned at:', {
+  //       raw: assignedTimeString,
+  //       timestamp: assignedTimeRef.current,
+  //       readable: new Date(assignedTimeRef.current).toString(),
+  //       iso: new Date(assignedTimeRef.current).toISOString()
+  //     });
   //   }
+
+  //   // ✅ Get estimated delivery time (should be in minutes from backend)
+  //   const estimatedMinutes = activeOrder.estimated_delivery_time || 30;
     
+  //   console.log('⏰ Estimated delivery time:', {
+  //     raw: activeOrder.estimated_delivery_time,
+  //     minutes: estimatedMinutes
+  //   });
+
   //   let remainingSeconds = estimatedMinutes * 60;
-    
-  //   if (activeOrder.assigned_at) {
-  //     try {
-  //       const assignedTime = new Date(activeOrder.assigned_at).getTime();
-  //       const currentTime = new Date().getTime();
-  //       const elapsedSeconds = Math.floor((currentTime - assignedTime) / 1000);
-  //       remainingSeconds = Math.max(0, remainingSeconds - elapsedSeconds);
-  //     } catch (error) {
-  //       console.error('⏱️ Error calculating time:', error);
-  //     }
+
+  //   // ✅ Calculate elapsed time since assignment
+  //   if (assignedTimeRef.current) {
+  //     const currentTime = Date.now();
+  //     const elapsedMs = currentTime - assignedTimeRef.current;
+  //     const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      
+  //     console.log('⏱️ Time calculation:', {
+  //       assigned: new Date(assignedTimeRef.current).toISOString(),
+  //       current: new Date(currentTime).toISOString(),
+  //       elapsedMs,
+  //       elapsedSeconds,
+  //       elapsedMinutes: Math.floor(elapsedSeconds / 60),
+  //       estimatedMinutes,
+  //       totalSecondsAvailable: remainingSeconds
+  //     });
+
+  //     // ✅ Subtract elapsed time from total time
+  //     remainingSeconds = Math.max(0, remainingSeconds - elapsedSeconds);
+      
+  //     console.log('⏱️ Remaining after calculation:', {
+  //       remainingSeconds,
+  //       remainingMinutes: Math.floor(remainingSeconds / 60)
+  //     });
   //   }
-    
+
   //   setTimeRemainingSeconds(remainingSeconds);
   //   setCountdownInitialized(orderId || null);
-  // }, [activeOrder?.id, activeOrder?.order_status]);
-  const assignedTimeRef = useRef<number | null>(null); // 🕓 store assigned time in memory only
 
+  //   console.log('✅ Timer initialized:', {
+  //     orderId,
+  //     estimatedMinutes,
+  //     remainingSeconds,
+  //     remainingMinutes: Math.floor(remainingSeconds / 60)
+  //   });
+  // }, [activeOrder?.id, activeOrder?.order_status]);
+  const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
+  // Renamed for clarity: tracks the ID of the order for which the countdown has been initialized
+  const [countdownInitializedId, setCountdownInitializedId] = useState<string | null>(null);
+  const assignedTimeRef = useRef<number | null>(null);
+  const initialEstimatedMinutesRef = useRef<number | null>(null); // To store the estimated time once
+
+  // ✅ Initialize countdown timer
   useEffect(() => {
     if (!activeOrder) {
       setTimeRemainingSeconds(null);
-      setCountdownInitialized(null);
+      setCountdownInitializedId(null); // Reset when there's no active order
       assignedTimeRef.current = null;
+      initialEstimatedMinutesRef.current = null;
       return;
     }
 
-    const orderId = activeOrder.id;
-    const orderStatus = activeOrder.order_status;
-    const validStatuses = ['assigned', 'out_for_delivery'];
-
-    if (!validStatuses.includes(orderStatus)) {
-      setTimeRemainingSeconds(null);
-      setCountdownInitialized(null);
-      assignedTimeRef.current = null;
-      return;
-    }
-
-    // 🧠 Set assigned time only once when status becomes "assigned"
-    if (orderStatus === 'assigned' && !assignedTimeRef.current) {
-      assignedTimeRef.current = new Date(activeOrder.assigned_at || Date.now()).getTime();
-      // Log the raw milliseconds
-  console.log('⏱️ Assigned time (ms):', assignedTimeRef.current);
+  const orderId = activeOrder.id;
+  const orderStatus = activeOrder.order_status;
   
-  // Log as readable date
-  console.log('⏱️ Assigned time (Date):', new Date(assignedTimeRef.current).toString());
+  // Only show countdown for these statuses
+  const validStatuses = ['assigned', 'out_for_delivery'];
+
+  if (!validStatuses.includes(orderStatus)) {
+    setTimeRemainingSeconds(null);
+    // Reset initialization state if status is no longer valid for a countdown
+    setCountdownInitializedId(null);
+    assignedTimeRef.current = null;
+    initialEstimatedMinutesRef.current = null;
+    return;
+  }
+
+  // Initialize assignedTimeRef and initialEstimatedMinutesRef only once for this specific order.
+  // This condition ensures the initialization block runs only if the current order's countdown
+  // has not been set up yet.
+  if (countdownInitializedId !== orderId) { 
+    const assignedTimeString = activeOrder.assigned_at;
   
-  // Log as ISO string
-  console.log('⏱️ Assigned time (ISO):', new Date(assignedTimeRef.current).toISOString());
+  if (assignedTimeString) {
+    assignedTimeRef.current = parseTimestamp(assignedTimeString);
+  } else {
+    // Fallback if assigned_at is missing; consider if this is a desirable default
+    console.warn('assigned_at is missing for order, using current time for countdown start.');
+    assignedTimeRef.current = Date.now(); 
+  }
 
-    }
-    // Prevent restarting the timer for same order
-    if (countdownInitialized === orderId) {
-      return;
-    }
+  initialEstimatedMinutesRef.current = activeOrder.estimated_delivery_time || 30;
 
-    // Default estimated time
-    let estimatedMinutes = 30;
-    const rawValue = activeOrder.estimated_delivery_time;
-    console.log(rawValue)
-    if (rawValue && typeof rawValue === 'number') {
-      if (rawValue >= 5 && rawValue <= 30) {
-        estimatedMinutes = Math.round(rawValue);
-      } else if (rawValue > 60 && rawValue < 3600) {
-        const convertedMinutes = Math.round(rawValue / 60);
-        if (convertedMinutes >= 5 && convertedMinutes <= 60) {
-          estimatedMinutes = convertedMinutes;
-        }
-      }
-    }
+  setCountdownInitializedId(orderId || null); // Mark this order as initialized
 
-    let remainingSeconds = estimatedMinutes * 60;
+  console.log('⏱️ Order countdown initialized:', {
+    orderId,
+    assignedAtRaw: assignedTimeString,
+    assignedAtTimestamp: assignedTimeRef.current,
+    initialEstimatedMinutes: initialEstimatedMinutesRef.current,
+  });
+}
 
-    // ⏱️ Calculate elapsed time since assigned
-    if (assignedTimeRef.current) {
-      const currentTime = Date.now();
-      const elapsedSeconds = Math.floor((currentTime - assignedTimeRef.current) / 1000);
-      console.log(elapsedSeconds)
-      remainingSeconds = Math.max(0, remainingSeconds - elapsedSeconds);
-    }
+// Ensure the refs are populated before proceeding with time calculations.
+if (!assignedTimeRef.current || !initialEstimatedMinutesRef.current) {
+    console.warn('⚠️ Refs are null after attempted initialization. Cannot calculate countdown.');
+    setTimeRemainingSeconds(null);
+    return;
+}
 
-    setTimeRemainingSeconds(remainingSeconds);
-    setCountdownInitialized(orderId || null);
-  }, [activeOrder?.id, activeOrder?.order_status]);
+const estimatedMinutes = initialEstimatedMinutesRef.current; // Use the fixed initial estimated time
+let totalSecondsAvailable = estimatedMinutes * 60;
 
+const currentTime = Date.now();
+const elapsedMs = currentTime - assignedTimeRef.current;
+const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
-  // Countdown update
+let remainingSeconds = Math.max(0, totalSecondsAvailable - elapsedSeconds);
+
+console.log('⏱️ Countdown calculation update:', {
+  orderId,
+  assignedAt: new Date(assignedTimeRef.current).toISOString(),
+  current: new Date(currentTime).toISOString(),
+  elapsedSeconds,
+  totalSecondsAvailable,
+  remainingSeconds,
+});
+
+  setTimeRemainingSeconds(remainingSeconds);
+
+}, [activeOrder?.id, activeOrder?.order_status, activeOrder?.assigned_at, activeOrder?.estimated_delivery_time]);
+  // ✅ Countdown update - runs every second
   useEffect(() => {
     if (timeRemainingSeconds === null || timeRemainingSeconds <= 0) {
       return;
@@ -184,9 +267,14 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [timeRemainingSeconds]);
 
+  // ✅ Format countdown for display
   const formatCountdown = () => {
+    if (activeOrder?.order_status === 'delivered'){
+      return 'Arrived';
+    }
     if (timeRemainingSeconds === null) {
-      return `${activeOrder?.estimated_delivery_time || 30} mins`;
+      const estimatedMinutes = activeOrder?.estimated_delivery_time || 30;
+      return `${estimatedMinutes} mins`;
     }
     
     if (timeRemainingSeconds <= 0) {
@@ -450,7 +538,7 @@ export default function OrderTrackingScreen() {
             <View style={styles.deliveryInfo}>
               <Ionicons name="time-outline" size={18} color="#fff" />
               <Text style={styles.deliveryText}>
-                Arriving in {formatCountdown()}
+                {formatCountdown()}
               </Text>
               <TouchableOpacity onPress={onRefresh} style={styles.refreshIcon}>
                 <Ionicons name="refresh" size={20} color="#fff" />
@@ -519,7 +607,7 @@ export default function OrderTrackingScreen() {
           <TouchableOpacity 
             style={styles.orderDetailsRow}
             onPress={() => {
-              console.log('🔍 Opening items modal with data:', activeOrder?.items);
+              console.log('📄 Opening items modal with data:', activeOrder?.items);
               setShowOrderItemsModal(true);
             }}
             activeOpacity={0.7}
@@ -612,333 +700,68 @@ export default function OrderTrackingScreen() {
   );
 }
 
+// ... (keep all existing styles)
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  header: {
-    paddingBottom: 20,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  backButton: {
-    padding: 4,
-  },
-  statusSection: {
-    alignItems: 'center',
-    paddingTop: 16,
-  },
-  statusTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  deliveryInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 6,
-  },
-  deliveryText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  refreshIcon: {
-    padding: 4,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  shopButton: {
-    backgroundColor: '#00A65A',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  shopButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  deliveryDetailsCard: {
-    backgroundColor: '#FFF9E6',
-    marginTop: 8,
-    padding: 16,
-  },
-  deliveryDetailsHeader: {
-    marginBottom: 16,
-  },
-  deliveryDetailsTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#8B4513',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  detailTextContainer: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  detailTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  detailSubtitle: {
-    fontSize: 13,
-    color: '#666',
-  },
-  restaurantCard: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    padding: 16,
-  },
-  orderDetailsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  orderDetailsText: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  orderNumber: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 6,
-  },
-  orderItemsPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  vegIcon: {
-    width: 16,
-    height: 16,
-    borderWidth: 1.5,
-    borderColor: '#00A65A',
-    borderRadius: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 6,
-  },
-  vegDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#00A65A',
-  },
-  orderItemsText: {
-    fontSize: 13,
-    color: '#666',
-  },
-  ratePartnerSection: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    padding: 16,
-  },
-  ratePartnerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  partnerAvatarSmall: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  ratePartnerTextContainer: {
-    flex: 1,
-  },
-  ratePartnerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 2,
-  },
-  ratePartnerSubtitle: {
-    fontSize: 13,
-    color: '#666',
-  },
-  partnerStarsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  partnerStar: {
-    marginHorizontal: 4,
-  },
-  ratingThankYou: {
-    fontSize: 14,
-    color: '#4CAF50',
-    textAlign: 'center',
-    marginTop: 8,
-    fontWeight: '500',
-  },
-  helpSection: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    padding: 16,
-  },
-  helpRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  helpIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFE8E8',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  helpTextContainer: {
-    flex: 1,
-  },
-  helpTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  helpSubtitle: {
-    fontSize: 13,
-    color: '#666',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  customTipModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-  },
-  customTipHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  customTipTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-  },
-  customTipContent: {
-    marginBottom: 20,
-  },
-  customTipLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  customTipInput: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 16,
-    fontSize: 24,
-    fontWeight: '600',
-    textAlign: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-  customTipHint: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  customTipButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  customTipCancelButton: {
-    flex: 1,
-    backgroundColor: '#f0f0f0',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  customTipCancelText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  customTipConfirmButton: {
-    flex: 1,
-    backgroundColor: '#00A65A',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  customTipConfirmText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
+  // ... all your existing styles
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  header: { paddingBottom: 20 },
+  headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8 },
+  backButton: { padding: 4 },
+  statusSection: { alignItems: 'center', paddingTop: 16 },
+  statusTitle: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 12 },
+  deliveryInfo: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.15)', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, gap: 6 },
+  deliveryText: { fontSize: 14, fontWeight: '500', color: '#fff' },
+  refreshIcon: { padding: 4 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, fontSize: 16, color: '#666' },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 20, fontWeight: '600', color: '#333', marginTop: 16, marginBottom: 8 },
+  emptySubtitle: { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 24 },
+  shopButton: { backgroundColor: '#00A65A', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  shopButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  content: { flex: 1 },
+  deliveryDetailsCard: { backgroundColor: '#FFF9E6', marginTop: 8, padding: 16 },
+  deliveryDetailsHeader: { marginBottom: 16 },
+  deliveryDetailsTitle: { fontSize: 14, fontWeight: '500', color: '#8B4513' },
+  detailRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 12 },
+  detailTextContainer: { flex: 1, marginLeft: 12 },
+  detailTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
+  detailSubtitle: { fontSize: 13, color: '#666' },
+  restaurantCard: { backgroundColor: '#fff', marginTop: 8, padding: 16 },
+  orderDetailsRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
+  orderDetailsText: { flex: 1, marginLeft: 12 },
+  orderNumber: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 6 },
+  orderItemsPreview: { flexDirection: 'row', alignItems: 'center' },
+  vegIcon: { width: 16, height: 16, borderWidth: 1.5, borderColor: '#00A65A', borderRadius: 2, justifyContent: 'center', alignItems: 'center', marginRight: 6 },
+  vegDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#00A65A' },
+  orderItemsText: { fontSize: 13, color: '#666' },
+  ratePartnerSection: { backgroundColor: '#fff', marginTop: 8, padding: 16 },
+  ratePartnerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  partnerAvatarSmall: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  ratePartnerTextContainer: { flex: 1 },
+  ratePartnerTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 2 },
+  ratePartnerSubtitle: { fontSize: 13, color: '#666' },
+  partnerStarsContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 8 },
+  partnerStar: { marginHorizontal: 4 },
+  ratingThankYou: { fontSize: 14, color: '#4CAF50', textAlign: 'center', marginTop: 8, fontWeight: '500' },
+  helpSection: { backgroundColor: '#fff', marginTop: 8, padding: 16 },
+  helpRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  helpIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFE8E8', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  helpTextContainer: { flex: 1 },
+  helpTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
+  helpSubtitle: { fontSize: 13, color: '#666' },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  modalBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+  customTipModal: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+  customTipHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  customTipTitle: { fontSize: 20, fontWeight: '700', color: '#333' },
+  customTipContent: { marginBottom: 20 },
+  customTipLabel: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 12 },
+  customTipInput: { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 16, fontSize: 24, fontWeight: '600', textAlign: 'center', backgroundColor: '#f8f9fa' },
+  customTipHint: { fontSize: 12, color: '#999', textAlign: 'center', marginTop: 8 },
+  customTipButtons: { flexDirection: 'row', gap: 12 },
+  customTipCancelButton: { flex: 1, backgroundColor: '#f0f0f0', padding: 16, borderRadius: 8, alignItems: 'center' },
+  customTipCancelText: { fontSize: 16, fontWeight: '600', color: '#666' },
+  customTipConfirmButton: { flex: 1, backgroundColor: '#00A65A', padding: 16, borderRadius: 8, alignItems: 'center' },
+  customTipConfirmText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });

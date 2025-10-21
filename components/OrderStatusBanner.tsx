@@ -208,7 +208,7 @@ export function OrderStatusBanner() {
         };
       case 'out_for_delivery':
         return {
-          text: 'Preparing your order',
+          text: 'On the way',
           icon: 'bicycle' as const,
           bgColor: '#FFFFFF',
           textColor: '#1C1C1C',
