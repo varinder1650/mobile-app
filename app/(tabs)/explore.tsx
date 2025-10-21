@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+// (tabs)/explore.tsx - OPTIMIZED CART SCREEN
+import React, { useState, useCallback } from 'react';
 import { router } from 'expo-router';
 import { View, FlatList, Alert, ActivityIndicator, RefreshControl, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { API_ENDPOINTS } from '../../config/apiConfig';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCart } from '../../contexts/CartContext'; // ✅ Use CartContext
 import { useFocusEffect } from '@react-navigation/native';
-import { CartItem } from '../../types/cart.types';
 import { styles } from '../../styles/cart.styles';
 
 import CartHeader from '../../components/cart/CartHeader';
@@ -13,146 +13,89 @@ import CartItemComponent from '../../components/cart/CartItem';
 import CartFooter from '../../components/cart/CartFooter';
 import EmptyCart from '../../components/cart/EmptyCart';
 
+// ✅ Memoized CartItem wrapper
+const MemoizedCartItem = React.memo(CartItemComponent, (prev, next) => {
+  return (
+    prev.item._id === next.item._id &&
+    prev.item.quantity === next.item.quantity &&
+    prev.updating === next.updating
+  );
+});
+
 const CartScreen = () => {
-  const { token, user } = useAuth();
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { token } = useAuth();
+  const { 
+    cartItems, 
+    cartCount,
+    loading,
+    updateQuantity,
+    removeItem,
+    refreshCart,
+    getTotalPrice 
+  } = useCart(); // ✅ All cart logic from context
+  
   const [updating, setUpdating] = useState(false);
 
-  useEffect(() => {
-    fetchCart();
-  }, []);
-
+  // ✅ Refresh cart when screen is focused
   useFocusEffect(
-    React.useCallback(() => {
-      fetchCart();
-    }, [])
+    useCallback(() => {
+      refreshCart();
+    }, [refreshCart])
   );
 
-  const fetchCart = async () => {
-    try {
-      console.log('Fetching cart with token:', token ? 'Present' : 'Missing');
-      
-      if (!token) {
-        setCartItems([]);
-        setLoading(false);
-        return;
-      }
-
-      const timestamp = Date.now();
-      const response = await fetch(`${API_ENDPOINTS.CART}?_t=${timestamp}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      console.log('Cart response status:', response.status);
-      
-      if (response.status === 401) {
-        console.log('Cart: Authentication failed, token may be expired');
-        Alert.alert(
-          'Session Expired',
-          'Please login again to access your cart',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Login', onPress: () => router.push('/auth/login') }
-          ]
-        );
-        setCartItems([]);
-        setLoading(false);
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Cart data received:', data);
-      
-      const items = data.items || [];
-      setCartItems(items);
-
-    } catch (error) {
-      console.error('Error fetching cart:', error);
-      Alert.alert('Error', 'Failed to load cart');
-      setCartItems([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateQuantity = async (itemId: string, newQuantity: number) => {
-    if (!token) {
-      Alert.alert('Error', 'Please login to manage cart');
+  // ✅ Optimized update handler with loading state
+  const handleUpdateQuantity = useCallback(async (itemId: string, newQuantity: number) => {
+    setUpdating(true);
+    
+    // Find the product ID from cart item
+    const cartItem = cartItems.find(item => item._id === itemId);
+    if (!cartItem) {
+      setUpdating(false);
       return;
     }
 
-    setUpdating(true);
-    try {
-      if (newQuantity <= 0) {
-        const response = await fetch(`${API_ENDPOINTS.CART_REMOVE}?item_id=${itemId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+    await updateQuantity(cartItem.product.id, newQuantity);
+    setUpdating(false);
+  }, [cartItems, updateQuantity]);
 
-        if (response.ok) {
-          setCartItems(prev => prev.filter(item => item._id !== itemId));
-        } else {
-          const errorData = await response.json();
-          Alert.alert('Error', errorData.message || 'Failed to remove item');
-        }
-      } else {
-        const response = await fetch(API_ENDPOINTS.CART_UPDATE, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ itemId, quantity: newQuantity }),
-        });
-
-        if (response.ok) {
-          setCartItems(prev => 
-            prev.map(item => 
-              item._id === itemId ? { ...item, quantity: newQuantity } : item
-            )
-          );
-        } else {
-          const errorData = await response.json();
-          Alert.alert('Error', errorData.message || 'Failed to update quantity');
-        }
-      }
-    } catch (error) {
-      console.error('Error updating cart:', error);
-      Alert.alert('Error', 'Failed to update cart');
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const removeItem = (itemId: string) => {
+  // ✅ Optimized remove handler
+  const handleRemoveItem = useCallback((itemId: string) => {
     Alert.alert(
       'Remove Item',
       'Are you sure you want to remove this item?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => {
-          updateQuantity(itemId, 0);
-        }},
+        { 
+          text: 'Remove', 
+          style: 'destructive', 
+          onPress: async () => {
+            setUpdating(true);
+            await removeItem(itemId);
+            setUpdating(false);
+          }
+        },
       ]
     );
-  };
+  }, [removeItem]);
 
-  const getTotalPrice = () => {
-    return cartItems.reduce((total, item) => total + (item.product.price * item.quantity), 0);
-  };
+  // ✅ Memoized renderItem
+  const renderItem = useCallback(({ item, index }: { item: any; index: number }) => (
+    <MemoizedCartItem 
+      item={item}
+      index={index}
+      updating={updating}
+      updateQuantity={handleUpdateQuantity}
+      removeItem={handleRemoveItem}
+    />
+  ), [updating, handleUpdateQuantity, handleRemoveItem]);
 
-  if (loading) {
+  // ✅ Memoized keyExtractor
+  const keyExtractor = useCallback((item: any, index: number) => 
+    `cart-item-${item._id}-${index}`, 
+    []
+  );
+
+  if (loading && cartItems.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -178,7 +121,7 @@ const CartScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <CartHeader cartCount={cartItems.length} />
+      <CartHeader cartCount={cartCount} />
 
       {cartItems.length === 0 ? (
         <EmptyCart 
@@ -190,30 +133,35 @@ const CartScreen = () => {
         <>
           <FlatList
             data={cartItems}
-            renderItem={({ item, index }) => (
-              <CartItemComponent 
-                item={item}
-                index={index}
-                updating={updating}
-                updateQuantity={updateQuantity}
-                removeItem={removeItem}
-              />
-            )}
-            keyExtractor={(item, index) => `cart-item-${item._id}-${index}`}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
             style={styles.cartList}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl refreshing={updating} onRefresh={fetchCart} />
+              <RefreshControl 
+                refreshing={loading} 
+                onRefresh={refreshCart}
+                colors={['#007AFF']}
+                tintColor="#007AFF"
+              />
             }
-            removeClippedSubviews={false}
+            // ✅ Performance optimizations
+            removeClippedSubviews={true}
             maxToRenderPerBatch={10}
-            windowSize={10}
+            windowSize={5}
+            initialNumToRender={10}
+            // ✅ Add getItemLayout for consistent heights
+            getItemLayout={(data, index) => ({
+              length: 180, // Approximate cart item height
+              offset: 180 * index,
+              index,
+            })}
           />
           
           <CartFooter 
             totalPrice={getTotalPrice()}
             updating={updating}
-            cartItemsCount={cartItems.length}
+            cartItemsCount={cartCount}
           />
         </>
       )}

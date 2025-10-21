@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// checkout.tsx - OPTIMIZED VERSION
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,10 +13,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
+import { useCart } from '../contexts/CartContext'; // ✅ Use CartContext
 import { API_BASE_URL, API_ENDPOINTS } from '../config/apiConfig';
 import { authenticatedFetch } from '../utils/authenticatedFetch';
 
-// Import modular components
 import {
   CheckoutHeader,
   AddressSection,
@@ -25,18 +26,7 @@ import {
   PriceBreakdown,
 } from '../components/checkout';
 
-interface CartItem {
-  _id: string;
-  product: {
-    id: string;
-    name: string;
-    price: number;
-    images: string[];
-    brand: { name: string };
-    stock: number;
-  };
-  quantity: number;
-}
+const DEBUG = __DEV__;
 
 interface AddressData {
   _id?: string;
@@ -66,14 +56,21 @@ interface PromoCode {
 
 export default function CheckoutScreen() {
   const { token, user } = useAuth();
+  const { 
+    cartItems,
+    cartCount,
+    updateQuantity,
+    clearCart,
+    getTotalPrice: getCartTotal 
+  } = useCart(); // ✅ Use CartContext
+  
   const params = useLocalSearchParams();
   
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [deliveryAddress, setDeliveryAddress] = useState<AddressData | null>(null);
   const [settings, setSettings] = useState<any>(null);
-  const [paymentMethod, setPaymentMethod] = useState('cod');
+  const [paymentMethod] = useState('cod');
   const [updatingQuantity, setUpdatingQuantity] = useState<{[key: string]: boolean}>({});
   
   // Promo code states
@@ -119,12 +116,7 @@ export default function CheckoutScreen() {
 
   const loadData = async () => {
     try {
-      const cartResponse = await authenticatedFetch(API_ENDPOINTS.CART);
-      
-      if (cartResponse.ok) {
-        const cartData = await cartResponse.json();
-        setCartItems(cartData.items || []);
-      }
+      // ✅ No need to fetch cart - CartContext handles it
       
       const settingsResponse = await fetch(API_ENDPOINTS.SETTINGS);
       if (settingsResponse.ok) {
@@ -137,7 +129,7 @@ export default function CheckoutScreen() {
       }
       
     } catch (error) {
-      console.error('Error loading data:', error);
+      if (DEBUG) console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
@@ -179,11 +171,12 @@ export default function CheckoutScreen() {
         }
       }
     } catch (error) {
-      console.error('Error loading default address:', error);
+      if (DEBUG) console.error('Error loading default address:', error);
     }
   };
 
-  const updateCartQuantity = async (itemId: string, newQuantity: number) => {
+  // ✅ Use CartContext updateQuantity
+  const updateCartQuantity = useCallback(async (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) {
       Alert.alert(
         'Remove Item',
@@ -193,7 +186,14 @@ export default function CheckoutScreen() {
           { 
             text: 'Remove', 
             style: 'destructive',
-            onPress: () => removeCartItem(itemId)
+            onPress: async () => {
+              setUpdatingQuantity(prev => ({ ...prev, [itemId]: true }));
+              const cartItem = cartItems.find(item => item._id === itemId);
+              if (cartItem) {
+                await updateQuantity(cartItem.product.id, 0);
+              }
+              setUpdatingQuantity(prev => ({ ...prev, [itemId]: false }));
+            }
           }
         ]
       );
@@ -207,58 +207,11 @@ export default function CheckoutScreen() {
     }
 
     setUpdatingQuantity(prev => ({ ...prev, [itemId]: true }));
-
-    try {
-      const response = await authenticatedFetch(API_ENDPOINTS.CART_UPDATE, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ itemId, quantity: newQuantity }),
-      });
-
-      if (response.ok) {
-        setCartItems(prevItems =>
-          prevItems.map(item =>
-            item._id === itemId ? { ...item, quantity: newQuantity } : item
-          )
-        );
-      } else {
-        const errorData = await response.json();
-        Alert.alert('Error', errorData.message || 'Failed to update quantity');
-      }
-    } catch (error) {
-      console.error('Error updating quantity:', error);
-      Alert.alert('Error', 'Failed to update quantity');
-    } finally {
-      setUpdatingQuantity(prev => ({ ...prev, [itemId]: false }));
+    if (cartItem) {
+      await updateQuantity(cartItem.product.id, newQuantity);
     }
-  };
-
-  const removeCartItem = async (itemId: string) => {
-    setUpdatingQuantity(prev => ({ ...prev, [itemId]: true }));
-
-    try {
-      const response = await authenticatedFetch(
-        `${API_ENDPOINTS.CART_REMOVE}?item_id=${itemId}`,
-        {
-          method: 'DELETE',
-        }
-      );
-
-      if (response.ok) {
-        setCartItems(prevItems => prevItems.filter(item => item._id !== itemId));
-      } else {
-        const errorData = await response.json();
-        Alert.alert('Error', errorData.message || 'Failed to remove item');
-      }
-    } catch (error) {
-      console.error('Error removing item:', error);
-      Alert.alert('Error', 'Failed to remove item');
-    } finally {
-      setUpdatingQuantity(prev => ({ ...prev, [itemId]: false }));
-    }
-  };
+    setUpdatingQuantity(prev => ({ ...prev, [itemId]: false }));
+  }, [cartItems, updateQuantity]);
 
   const applyPromoCode = async () => {
     if (!promoCode.trim()) {
@@ -294,7 +247,7 @@ export default function CheckoutScreen() {
         setPromoDiscount(0);
       }
     } catch (error) {
-      console.error('Error applying promo code:', error);
+      if (DEBUG) console.error('Error applying promo code:', error);
       Alert.alert('Error', 'Failed to apply promo code');
       setAppliedPromo(null);
       setPromoDiscount(0);
@@ -303,13 +256,13 @@ export default function CheckoutScreen() {
     }
   };
 
-  const removePromoCode = () => {
+  const removePromoCode = useCallback(() => {
     setPromoCode('');
     setAppliedPromo(null);
     setPromoDiscount(0);
-  };
+  }, []);
 
-  const calculatePromoDiscount = (promo: PromoCode) => {
+  const calculatePromoDiscount = useCallback((promo: PromoCode) => {
     const subtotal = getSubtotal();
     let discount = 0;
 
@@ -323,13 +276,10 @@ export default function CheckoutScreen() {
     }
 
     setPromoDiscount(discount);
-  };
+  }, []);
 
-  // ✅ FIX: Success animation with proper state management
-  const showSuccessAnimation = () => {
-    // ✅ CRITICAL: Stop the loading state BEFORE showing animation
+  const showSuccessAnimation = useCallback(() => {
     setPlacingOrder(false);
-    
     setShowSuccess(true);
     
     scaleAnim.setValue(0);
@@ -363,22 +313,24 @@ export default function CheckoutScreen() {
         }),
       ]).start(() => {
         setShowSuccess(false);
+        clearCart(); // ✅ Clear cart from context
         router.replace('/(tabs)');
       });
     }, 2500);
-  };
+  }, [scaleAnim, fadeAnim, clearCart]);
 
-  const getSubtotal = () => {
-    return cartItems.reduce((total, item) => total + (item.product.price * item.quantity), 0);
-  };
+  // ✅ Memoized price calculations
+  const getSubtotal = useCallback(() => {
+    return getCartTotal();
+  }, [getCartTotal]);
 
-  const getTax = () => {
+  const getTax = useMemo(() => {
     if (!settings) return 0;
     const taxableAmount = getSubtotal() - promoDiscount;
     return taxableAmount * (settings.tax_rate / 100);
-  };
+  }, [settings, getSubtotal, promoDiscount]);
 
-  const getDeliveryCharge = () => {
+  const getDeliveryCharge = useMemo(() => {
     if (!settings || !settings.delivery_fee) return 0;
     const subtotal = getSubtotal();
     
@@ -387,34 +339,34 @@ export default function CheckoutScreen() {
     }
     
     return settings.delivery_fee.base_fee;
-  };
+  }, [settings, getSubtotal]);
 
-  const getAppFee = () => {
+  const getAppFee = useMemo(() => {
     if (!settings || !settings.app_fee) return 0;
     const subtotal = getSubtotal() - promoDiscount;
     
     if (settings.app_fee.type === 'percentage') {
       const calculatedFee = subtotal * (settings.app_fee.value / 100);
-      return Math.max(settings.app_fee.min_fee, Math.min(calculatedFee, settings.app_fee.max_fee));
+      return Math.max(
+        settings.app_fee.min_fee, 
+        Math.min(calculatedFee, settings.app_fee.max_fee)
+      );
     }
     
     return settings.app_fee.value;
-  };
+  }, [settings, getSubtotal, promoDiscount]);
 
-  const getTotal = () => {
+  const getTotal = useMemo(() => {
     const subtotal = getSubtotal();
-    const tax = getTax();
-    const deliveryCharge = getDeliveryCharge();
-    const appFee = getAppFee();
-    return subtotal + tax + deliveryCharge + appFee - promoDiscount;
-  };
+    return subtotal + getTax + getDeliveryCharge + getAppFee - promoDiscount;
+  }, [getSubtotal, getTax, getDeliveryCharge, getAppFee, promoDiscount]);
 
-  const handleSelectAddress = () => {
+  const handleSelectAddress = useCallback(() => {
     router.push('/address?from=checkout');
-  };
+  }, []);
 
-  // ✅ FIX: Handle place order with proper error handling
   const handlePlaceOrder = async () => {
+    // ✅ Enhanced validation
     if (!deliveryAddress) {
       Alert.alert('Error', 'Please select a delivery address');
       return;
@@ -425,7 +377,8 @@ export default function CheckoutScreen() {
       return;
     }
 
-    if (!deliveryAddress.address || !deliveryAddress.city || !deliveryAddress.state || !deliveryAddress.pincode) {
+    if (!deliveryAddress.address || !deliveryAddress.city || 
+        !deliveryAddress.state || !deliveryAddress.pincode) {
       Alert.alert('Error', 'Please provide complete address information');
       return;
     }
@@ -472,15 +425,15 @@ export default function CheckoutScreen() {
         delivery_address: deliveryAddressData,
         payment_method: paymentMethod,
         subtotal: getSubtotal(),
-        tax: getTax(),
-        delivery_charge: getDeliveryCharge(),
-        app_fee: getAppFee(),
+        tax: getTax,
+        delivery_charge: getDeliveryCharge,
+        app_fee: getAppFee,
         promo_code: appliedPromo?.code || null,
         promo_discount: promoDiscount,
-        total_amount: getTotal(),
+        total_amount: getTotal,
       };
 
-      console.log('📦 Placing order...');
+      if (DEBUG) console.log('📦 Placing order...');
 
       const response = await authenticatedFetch(API_ENDPOINTS.ORDERS, {
         method: 'POST',
@@ -490,26 +443,36 @@ export default function CheckoutScreen() {
         body: JSON.stringify(orderData),
       });
 
-      console.log('📡 Response status:', response.status);
+      if (DEBUG) console.log('📡 Response status:', response.status);
 
       if (response.ok) {
         const orderResult = await response.json();
-        console.log('✅ Order placed successfully:', orderResult);
+        if (DEBUG) console.log('✅ Order placed successfully:', orderResult);
         
-        // ✅ CRITICAL FIX: Show animation immediately (it handles state reset)
         showSuccessAnimation();
       } else {
         const errorData = await response.json();
-        console.error('❌ Order placement failed:', errorData);
+        if (DEBUG) console.error('❌ Order placement failed:', errorData);
         Alert.alert('Error', errorData.detail || 'Failed to place order');
-        setPlacingOrder(false); // ✅ Reset on error
+        setPlacingOrder(false);
       }
     } catch (error) {
-      console.error('❌ Error placing order:', error);
+      if (DEBUG) console.error('❌ Error placing order:', error);
       Alert.alert('Error', 'Failed to place order. Please try again.');
-      setPlacingOrder(false); // ✅ Reset on error
+      setPlacingOrder(false);
     }
   };
+
+  // ✅ Memoized renderItem for cart items
+  const renderCartItem = useCallback((item: any) => (
+    <CartItemCard
+      key={item._id}
+      item={item}
+      onUpdateQuantity={updateCartQuantity}
+      updating={updatingQuantity[item._id]}
+      disabled={placingOrder}
+    />
+  ), [updateCartQuantity, updatingQuantity, placingOrder]);
 
   if (loading) {
     return (
@@ -559,15 +522,7 @@ export default function CheckoutScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Order Summary</Text>
           </View>
-          {cartItems.map((item) => (
-            <CartItemCard
-              key={item._id}
-              item={item}
-              onUpdateQuantity={updateCartQuantity}
-              updating={updatingQuantity[item._id]}
-              disabled={placingOrder}
-            />
-          ))}
+          {cartItems.map(renderCartItem)}
         </View>
 
         {/* Promo Code */}
@@ -585,12 +540,12 @@ export default function CheckoutScreen() {
         {/* Price Breakdown */}
         <PriceBreakdown
           subtotal={getSubtotal()}
-          tax={getTax()}
+          tax={getTax}
           taxRate={settings?.tax_rate || 0}
-          deliveryCharge={getDeliveryCharge()}
-          appFee={getAppFee()}
+          deliveryCharge={getDeliveryCharge}
+          appFee={getAppFee}
           promoDiscount={promoDiscount}
-          total={getTotal()}
+          total={getTotal}
           showFreeDelivery={getSubtotal() >= (settings?.delivery_fee?.free_delivery_threshold || 0)}
         />
 
@@ -610,12 +565,11 @@ export default function CheckoutScreen() {
               <Text style={styles.placeOrderText}>Processing...</Text>
             </>
           ) : (
-            <Text style={styles.placeOrderText}>Place Order - ₹{getTotal().toFixed(2)}</Text>
+            <Text style={styles.placeOrderText}>Place Order - ₹{getTotal.toFixed(2)}</Text>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Success Animation - NO LOADING POPUP */}
       <SuccessAnimation 
         visible={showSuccess}
         scaleAnim={scaleAnim}
@@ -626,80 +580,19 @@ export default function CheckoutScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  content: {
-    flex: 1,
-  },
-  section: {
-    backgroundColor: '#fff',
-    marginTop: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  sectionHeader: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  footer: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  placeOrderButton: {
-    backgroundColor: '#007AFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 8,
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
-  },
-  placeOrderText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 24,
-  },
-  shopNowButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  shopNowText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  content: { flex: 1 },
+  section: { backgroundColor: '#fff', marginTop: 8, paddingHorizontal: 16, paddingVertical: 16 },
+  sectionHeader: { marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
+  footer: { backgroundColor: '#fff', padding: 16, borderTopWidth: 1, borderTopColor: '#e0e0e0' },
+  placeOrderButton: { backgroundColor: '#007AFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 8 },
+  disabledButton: { backgroundColor: '#ccc' },
+  placeOrderText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: '#666', marginTop: 16 },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 20, fontWeight: '600', color: '#333', marginBottom: 24 },
+  shopNowButton: { backgroundColor: '#007AFF', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  shopNowText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

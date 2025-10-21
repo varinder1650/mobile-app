@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+// ticket-detail/[id].tsx - SECURITY ENHANCED VERSION
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../config/apiConfig';
+import {SecuritySanitizer } from '../../utils/sanitization';
+import { SafeText } from '../../components/SafeText';
 
 interface TicketMessage {
   _id: string;
@@ -69,6 +72,11 @@ const PRIORITY_COLORS = {
   'urgent': '#FF3B30',
 };
 
+const WHATSAPP_NUMBER = '+16173194514';
+
+// ✅ Rate limiter for message sending
+const messageRateLimiter = SecuritySanitizer.createRateLimiter(10, 60000); // 10 messages per minute
+
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams();
   const { token, user } = useAuth();
@@ -79,13 +87,11 @@ export default function TicketDetailScreen() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  const whatsappNumber = '+911234567890'; // Replace with your actual WhatsApp support number
-
   useEffect(() => {
     if (id) {
       fetchTicketDetail();
-      // Set up polling for real-time updates
-      const interval = setInterval(fetchTicketDetail, 30000); // Poll every 30 seconds
+      // ✅ Reduced polling from 30s to 45s for performance
+      const interval = setInterval(fetchTicketDetail, 45000);
       return () => clearInterval(interval);
     }
   }, [id]);
@@ -104,11 +110,11 @@ export default function TicketDetailScreen() {
         const data = await response.json();
         setTicket(data);
       } else {
-        console.error('Failed to fetch ticket details');
+        if (__DEV__) console.error('Failed to fetch ticket details');
         Alert.alert('Error', 'Failed to load ticket details');
       }
     } catch (error) {
-      console.error('Error fetching ticket details:', error);
+      if (__DEV__) console.error('Error fetching ticket details:', error);
     } finally {
       setLoading(false);
     }
@@ -121,8 +127,40 @@ export default function TicketDetailScreen() {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !ticket) {
-      Alert.alert('Error', 'Please enter a message');
+    // ✅ Enhanced validation with sanitization
+    const sanitized = SecuritySanitizer.sanitizeText(newMessage.trim());
+    
+    if (!sanitized.safe) {
+      Alert.alert(
+        'Invalid Message',
+        'Your message contains potentially harmful content. Please remove any suspicious text.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (!sanitized.sanitized || sanitized.sanitized.length < 3) {
+      Alert.alert('Error', 'Please enter a message (minimum 3 characters)');
+      return;
+    }
+
+    if (sanitized.sanitized.length > 1000) {
+      Alert.alert('Error', 'Message is too long (maximum 1000 characters)');
+      return;
+    }
+
+    if (!ticket) {
+      Alert.alert('Error', 'Ticket data not loaded');
+      return;
+    }
+
+    // ✅ Rate limiting check
+    if (!messageRateLimiter.isAllowed()) {
+      Alert.alert(
+        'Too Many Messages',
+        'You\'re sending messages too quickly. Please wait a moment before trying again.',
+        [{ text: 'OK' }]
+      );
       return;
     }
 
@@ -135,15 +173,14 @@ export default function TicketDetailScreen() {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          message: newMessage.trim(),
+          message: sanitized.sanitized, // ✅ Send sanitized content
         }),
       });
 
       if (response.ok) {
         setNewMessage('');
-        await fetchTicketDetail(); // Refresh to show new message
+        await fetchTicketDetail();
         
-        // Scroll to bottom to show new message
         setTimeout(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
         }, 100);
@@ -152,7 +189,7 @@ export default function TicketDetailScreen() {
         Alert.alert('Error', errorData.detail || 'Failed to send message');
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      if (__DEV__) console.error('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message');
     } finally {
       setSendingMessage(false);
@@ -160,28 +197,33 @@ export default function TicketDetailScreen() {
   };
 
   const openWhatsApp = () => {
-    const message = `Hi SmartBag Support, I need help with my support ticket #${ticket?._id.slice(-8).toUpperCase()}. 
+    if (!ticket) return;
 
-Subject: ${ticket?.subject}
-Category: ${SUPPORT_CATEGORIES[ticket?.category as keyof typeof SUPPORT_CATEGORIES]}
+    // ✅ Sanitize all user content in WhatsApp message
+    const sanitizedSubject = SecuritySanitizer.sanitizeText(ticket.subject).sanitized;
+    const sanitizedCategory = SUPPORT_CATEGORIES[ticket.category as keyof typeof SUPPORT_CATEGORIES];
+
+    const message = `Hi SmartBag Support, I need help with my support ticket #${ticket._id.slice(-8).toUpperCase()}. 
+
+Subject: ${sanitizedSubject}
+Category: ${sanitizedCategory}
 
 Please assist me with this issue.`;
 
     const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `whatsapp://send?phone=${whatsappNumber}&text=${encodedMessage}`;
+    const whatsappUrl = `whatsapp://send?phone=${WHATSAPP_NUMBER}&text=${encodedMessage}`;
     
     Linking.canOpenURL(whatsappUrl)
       .then((supported) => {
         if (supported) {
           return Linking.openURL(whatsappUrl);
         } else {
-          // Fallback to web WhatsApp
-          const webWhatsAppUrl = `https://wa.me/${whatsappNumber.replace('+', '')}?text=${encodedMessage}`;
+          const webWhatsAppUrl = `https://wa.me/${WHATSAPP_NUMBER.replace('+', '')}?text=${encodedMessage}`;
           return Linking.openURL(webWhatsAppUrl);
         }
       })
       .catch((error) => {
-        console.error('WhatsApp opening error:', error);
+        if (__DEV__) console.error('WhatsApp opening error:', error);
         Alert.alert(
           'WhatsApp Not Available',
           'WhatsApp is not installed on your device. Would you like to call our support instead?',
@@ -189,7 +231,7 @@ Please assist me with this issue.`;
             { text: 'Cancel', style: 'cancel' },
             { 
               text: 'Call Support', 
-              onPress: () => Linking.openURL(`tel:${whatsappNumber}`)
+              onPress: () => Linking.openURL(`tel:${WHATSAPP_NUMBER}`)
             }
           ]
         );
@@ -221,7 +263,8 @@ Please assist me with this issue.`;
     }
   };
 
-  const renderMessage = (message: TicketMessage, index: number) => {
+  // ✅ MEMOIZED - Prevents re-render on every state change
+  const renderMessage = React.useCallback((message: TicketMessage, index: number) => {
     const isUserMessage = message.sender_type === 'user';
     
     return (
@@ -233,14 +276,20 @@ Please assist me with this issue.`;
         ]}
       >
         <View style={styles.messageHeader}>
-          <Text style={styles.messageSender}>
+          {/* ✅ Use SafeText for sender name */}
+          <SafeText style={styles.messageSender} logThreats={false}>
             {isUserMessage ? 'You' : message.sender_name || 'Support Team'}
-          </Text>
+          </SafeText>
           <Text style={styles.messageTime}>
             {formatDate(message.created_at)}
           </Text>
         </View>
-        <Text style={styles.messageText}>{message.message}</Text>
+        
+        {/* ✅ Use SafeText for message content - CRITICAL SECURITY FIX */}
+        <SafeText style={styles.messageText}>
+          {message.message}
+        </SafeText>
+        
         {!isUserMessage && (
           <View style={styles.adminBadge}>
             <Ionicons name="shield-checkmark" size={12} color="#007AFF" />
@@ -249,7 +298,7 @@ Please assist me with this issue.`;
         )}
       </View>
     );
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -305,7 +354,10 @@ Please assist me with this issue.`;
         {/* Ticket Info Card */}
         <View style={styles.ticketInfoCard}>
           <View style={styles.ticketInfoHeader}>
-            <Text style={styles.ticketSubject} numberOfLines={2}>{ticket.subject}</Text>
+            {/* ✅ Use SafeText for subject */}
+            <SafeText style={styles.ticketSubject} numberOfLines={2}>
+              {ticket.subject}
+            </SafeText>
             <View style={styles.badgeContainer}>
               <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[ticket.status] }]}>
                 <Text style={styles.badgeText}>{getStatusText(ticket.status)}</Text>
@@ -352,7 +404,10 @@ Please assist me with this issue.`;
               <Text style={styles.messageSender}>You</Text>
               <Text style={styles.messageTime}>{formatDate(ticket.created_at)}</Text>
             </View>
-            <Text style={styles.messageText}>{ticket.message}</Text>
+            {/* ✅ Sanitized original message */}
+            <SafeText style={styles.messageText}>
+              {ticket.message}
+            </SafeText>
             <View style={styles.originalMessageBadge}>
               <Text style={styles.originalMessageText}>Original Request</Text>
             </View>
@@ -381,14 +436,14 @@ Please assist me with this issue.`;
           
           <TouchableOpacity 
             style={styles.callActionButton}
-            onPress={() => Linking.openURL(`tel:${whatsappNumber}`)}
+            onPress={() => Linking.openURL(`tel:${WHATSAPP_NUMBER}`)}
           >
             <Ionicons name="call" size={20} color="#fff" />
             <Text style={styles.callActionText}>Call Support</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Message Input (only if ticket is open or in progress) */}
+        {/* Message Input */}
         {(ticket.status === 'open' || ticket.status === 'in_progress') && (
           <View style={styles.messageInputContainer}>
             <View style={styles.inputWrapper}>
@@ -396,7 +451,12 @@ Please assist me with this issue.`;
                 style={styles.messageInput}
                 placeholder="Type your message..."
                 value={newMessage}
-                onChangeText={setNewMessage}
+                onChangeText={(text) => {
+                  // ✅ Limit input length in real-time
+                  if (text.length <= 1000) {
+                    setNewMessage(text);
+                  }
+                }}
                 multiline
                 maxLength={1000}
                 editable={!sendingMessage}
@@ -416,9 +476,15 @@ Please assist me with this issue.`;
                 )}
               </TouchableOpacity>
             </View>
-            <Text style={styles.inputCounter}>
-              {newMessage.length}/1000
-            </Text>
+            <View style={styles.inputFooter}>
+              <Text style={styles.inputCounter}>
+                {newMessage.length}/1000
+              </Text>
+              {/* ✅ Show rate limit info */}
+              <Text style={styles.rateLimitInfo}>
+                {messageRateLimiter.getRemainingCalls()} messages remaining this minute
+              </Text>
+            </View>
           </View>
         )}
 
@@ -445,331 +511,62 @@ Please assist me with this issue.`;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  headerBackButton: {
-    padding: 8,
-  },
-  headerTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  ticketId: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  whatsappButton: {
-    padding: 8,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  backButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  ticketInfoCard: {
-    backgroundColor: '#fff',
-    margin: 16,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  ticketInfoHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  ticketSubject: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    marginRight: 12,
-  },
-  badgeContainer: {
-    alignItems: 'flex-end',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  priorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  ticketMeta: {
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 12,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  metaText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-  },
-  messagesContainer: {
-    flex: 1,
-  },
-  messagesContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  messageContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  userMessage: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#007AFF',
-    marginLeft: 20,
-  },
-  adminMessage: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#34C759',
-    marginRight: 20,
-    backgroundColor: '#f0fff0',
-  },
-  originalMessage: {
-    borderLeftColor: '#FF9500',
-    backgroundColor: '#fff8f0',
-  },
-  messageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  messageSender: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  messageTime: {
-    fontSize: 12,
-    color: '#666',
-  },
-  messageText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 22,
-  },
-  adminBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  adminBadgeText: {
-    fontSize: 12,
-    color: '#007AFF',
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  originalMessageBadge: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    backgroundColor: '#FF9500',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  originalMessageText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  noMessagesContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noMessagesText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  noMessagesSubtext: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-  quickActionsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 12,
-  },
-  whatsappActionButton: {
-    flex: 1,
-    backgroundColor: '#25D366',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-  },
-  whatsappActionText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  callActionButton: {
-    flex: 1,
-    backgroundColor: '#007AFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-  },
-  callActionText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  messageInputContainer: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    padding: 16,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 8,
-  },
-  messageInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginRight: 12,
-    maxHeight: 100,
-    fontSize: 16,
-    backgroundColor: '#f8f9fa',
-  },
-  sendButton: {
-    backgroundColor: '#007AFF',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  inputCounter: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'right',
-  },
-  closedNoticeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0fff0',
-    margin: 16,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#34C759',
-  },
-  closedNoticeText: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  closedNoticeTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  closedNoticeSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 18,
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e0e0e0' },
+  headerBackButton: { padding: 8 },
+  headerTitleContainer: { flex: 1, alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
+  ticketId: { fontSize: 12, color: '#666', marginTop: 2 },
+  whatsappButton: { padding: 8 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  loadingText: { fontSize: 16, color: '#666', marginTop: 16 },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  errorTitle: { fontSize: 20, fontWeight: '600', color: '#333', marginTop: 16, marginBottom: 8 },
+  errorSubtitle: { fontSize: 16, color: '#666', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  backButton: { backgroundColor: '#007AFF', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  backButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  ticketInfoCard: { backgroundColor: '#fff', margin: 16, borderRadius: 12, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  ticketInfoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  ticketSubject: { fontSize: 18, fontWeight: '600', color: '#333', flex: 1, marginRight: 12 },
+  badgeContainer: { alignItems: 'flex-end' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginBottom: 4 },
+  priorityBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '600', textTransform: 'uppercase' },
+  ticketMeta: { borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 12 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  metaText: { fontSize: 14, color: '#666', marginLeft: 8 },
+  messagesContainer: { flex: 1 },
+  messagesContent: { padding: 16, paddingBottom: 100 },
+  messageContainer: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+  userMessage: { borderLeftWidth: 4, borderLeftColor: '#007AFF', marginLeft: 20 },
+  adminMessage: { borderLeftWidth: 4, borderLeftColor: '#34C759', marginRight: 20, backgroundColor: '#f0fff0' },
+  originalMessage: { borderLeftColor: '#FF9500', backgroundColor: '#fff8f0' },
+  messageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  messageSender: { fontSize: 14, fontWeight: '600', color: '#333' },
+  messageTime: { fontSize: 12, color: '#666' },
+  messageText: { fontSize: 16, color: '#333', lineHeight: 22 },
+  adminBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  adminBadgeText: { fontSize: 12, color: '#007AFF', fontWeight: '600', marginLeft: 4 },
+  originalMessageBadge: { marginTop: 8, alignSelf: 'flex-start', backgroundColor: '#FF9500', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  originalMessageText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  noMessagesContainer: { alignItems: 'center', paddingVertical: 40 },
+  noMessagesText: { fontSize: 16, color: '#666', marginTop: 12, marginBottom: 4 },
+  noMessagesSubtext: { fontSize: 14, color: '#999', textAlign: 'center' },
+  quickActionsContainer: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 8, gap: 12 },
+  whatsappActionButton: { flex: 1, backgroundColor: '#25D366', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 8 },
+  whatsappActionText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 8 },
+  callActionButton: { flex: 1, backgroundColor: '#007AFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 8 },
+  callActionText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 8 },
+  messageInputContainer: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', padding: 16 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
+  messageInput: { flex: 1, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, marginRight: 12, maxHeight: 100, fontSize: 16, backgroundColor: '#f8f9fa' },
+  sendButton: { backgroundColor: '#007AFF', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  sendButtonDisabled: { backgroundColor: '#ccc' },
+  inputFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  inputCounter: { fontSize: 12, color: '#666' },
+  rateLimitInfo: { fontSize: 11, color: '#999', fontStyle: 'italic' },
+  closedNoticeContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0fff0', margin: 16, padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#34C759' },
+  closedNoticeText: { flex: 1, marginLeft: 12 },
+  closedNoticeTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 4 },
+  closedNoticeSubtitle: { fontSize: 14, color: '#666', lineHeight: 18 },
 });

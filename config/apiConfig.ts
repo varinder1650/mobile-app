@@ -8,6 +8,7 @@ const rawApiUrl =
 
 // Remove trailing slashes
 export const API_BASE_URL = rawApiUrl.replace(/\/+$/, '');
+export const IMAGE_BASE_URL = API_BASE_URL.replace('/api', ''); 
 
 console.log('Using API URL:', API_BASE_URL);
 

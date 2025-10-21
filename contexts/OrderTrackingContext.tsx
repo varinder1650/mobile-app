@@ -1,6 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+// contexts/OrderTrackingContext.tsx - OPTIMIZED WITH SMART POLLING
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { API_BASE_URL } from '../config/apiConfig';
 import { useAuth } from './AuthContext';
+
+const DEBUG = __DEV__;
 
 interface DeliveryPartner {
   name: string;
@@ -10,58 +13,57 @@ interface DeliveryPartner {
 }
 
 interface Order {
-    _id: string;
-    id?: string;  
-    order_status: 'preparing' | 'assigning' | 'assigned' | 'out_for_delivery' | 'delivered' | 'arrived';
-    delivery_partner?: DeliveryPartner;
-    estimated_delivery_time?: number;
-    actual_delivery?: number;
-    delivery_partner_location?: {
-      latitude: number;
-      longitude: number;
-    };
-    status_message?: string;
-    timeline?: Array<{
-      status: string;
-      timestamp: string;
-      message?: string;
-    }>;
-
-    items?: Array<{
-      product_name?: string;
-      product?: string;
-      quantity: number;
-      price: number;
-    }>;
-    subtotal?: number;
-    tax?: number;
-    delivery_charge?: number;
-    app_fee?: number;
-    promo_discount?: number;
-    total_amount?: number;
-    delivery_address?: {
-      label:string;
-      street:string;
-      address: string;
-      city: string;
-      state: string;
-      pincode: string;
-      phone: string;
-      latitude: number;
-      longitude: number;
-    };
-    status_change_history?: Array<{
-      status: string;
-      changed_at: string;
-    }>;
-    delivered_at?: string;
-    arrived_at?: string;
-    out_for_delivery_at?: string;
-    assigned_at?: string;
-    preparing_at?: string;
-    confirmed_at?: string;
-    created_at?: string;
-    tip_amount?: number;
+  _id: string;
+  id?: string;
+  order_status: 'preparing' | 'assigning' | 'assigned' | 'out_for_delivery' | 'delivered' | 'arrived';
+  delivery_partner?: DeliveryPartner;
+  estimated_delivery_time?: number;
+  actual_delivery?: number;
+  delivery_partner_location?: {
+    latitude: number;
+    longitude: number;
+  };
+  status_message?: string;
+  timeline?: Array<{
+    status: string;
+    timestamp: string;
+    message?: string;
+  }>;
+  items?: Array<{
+    product_name?: string;
+    product?: string;
+    quantity: number;
+    price: number;
+  }>;
+  subtotal?: number;
+  tax?: number;
+  delivery_charge?: number;
+  app_fee?: number;
+  promo_discount?: number;
+  total_amount?: number;
+  delivery_address?: {
+    label: string;
+    street: string;
+    address: string;
+    city: string;
+    state: string;
+    pincode: string;
+    phone: string;
+    latitude: number;
+    longitude: number;
+  };
+  status_change_history?: Array<{
+    status: string;
+    changed_at: string;
+  }>;
+  delivered_at?: string;
+  arrived_at?: string;
+  out_for_delivery_at?: string;
+  assigned_at?: string;
+  preparing_at?: string;
+  confirmed_at?: string;
+  created_at?: string;
+  tip_amount?: number;
 }
 
 interface OrderTrackingContextType {
@@ -90,35 +92,19 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isPollingEnabled, setIsPollingEnabled] = useState(true);
   const [dismissedOrderId, setDismissedOrderId] = useState<string | null>(null);
-
-  // ✅ Add logging to see when context initializes
-  useEffect(() => {
-    console.log('🎯 OrderTrackingProvider mounted');
-    return () => {
-      console.log('🎯 OrderTrackingProvider unmounted');
-    };
-  }, []);
-
-  // ✅ Log when auth state changes
-  useEffect(() => {
-    console.log('🎯 Auth state in OrderTracking:', {
-      hasToken: !!token,
-      hasUser: !!user,
-      userId: user?.id,
-      userEmail: user?.email,
-    });
-  }, [token, user]);
+  
+  // ✅ Smart polling with exponential backoff
+  const pollIntervalRef = useRef(10000); // Start at 10s
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const consecutiveErrorsRef = useRef(0);
 
   const fetchActiveOrder = async () => {
     if (!token || !user || !isPollingEnabled) {
-      console.log('⏸️ Skipping fetch - token:', !!token, 'user:', !!user, 'user.id:', user?.id, 'polling:', isPollingEnabled);
       return;
     }
 
     try {
-      console.log('📡 Fetching active order...');
-      console.log('📡 URL:', `${API_BASE_URL}/orders/active`);
-      console.log('📡 User ID:', user.id);
+      if (DEBUG) console.log('📡 Fetching active order...');
       
       const response = await fetch(`${API_BASE_URL}/orders/active`, {
         headers: {
@@ -127,37 +113,32 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
         },
       });
 
-      console.log('📡 Response status:', response.status);
-
       if (response.status === 404) {
-        console.log('📦 No active orders (404)');
+        if (DEBUG) console.log('📦 No active orders (404)');
         setActiveOrder(null);
         setError(null);
         setDismissedOrderId(null);
+        consecutiveErrorsRef.current = 0;
+        
+        // ✅ Slow down polling when no active order
+        pollIntervalRef.current = Math.min(pollIntervalRef.current * 1.5, 60000);
         return;
       }
 
       if (response.status === 401) {
-        console.log('🔒 Unauthorized (401)');
+        if (DEBUG) console.log('🔒 Unauthorized (401)');
         setActiveOrder(null);
+        consecutiveErrorsRef.current++;
         return;
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        throw new Error(`Failed to fetch: ${response.status}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('📦 Active order received:', {
-        id: data?.id,
-        status: data?.order_status,
-        // restaurant: data?.restaurant_name,
-      });
-      // console.log("order data ",data)
+      
       if (!data) {
-        console.log('📦 No data returned');
         setActiveOrder(null);
         return;
       }
@@ -169,17 +150,26 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
       }
 
       if (dismissedOrderId === data.id && data.order_status === 'delivered') {
-        console.log('🚫 Order dismissed');
+        if (DEBUG) console.log('🚫 Order dismissed');
         return;
       }
 
-      console.log('✅ Setting active order');
       setActiveOrder(data);
       setError(null);
+      consecutiveErrorsRef.current = 0;
+      
+      // ✅ Reset to fast polling when order is active
+      pollIntervalRef.current = 10000;
+      
     } catch (err) {
-      console.error('⚠️ Fetch error:', err);
+      if (DEBUG) console.error('⚠️ Fetch error:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
-      setActiveOrder(null);
+      consecutiveErrorsRef.current++;
+      
+      // ✅ Slow down on errors
+      if (consecutiveErrorsRef.current > 3) {
+        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 60000);
+      }
     }
   };
 
@@ -190,7 +180,7 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
   };
 
   const dismissBanner = () => {
-    console.log('❌ Dismissing banner');
+    if (DEBUG) console.log('❌ Dismissing banner');
     if (activeOrder?.order_status === 'delivered') {
       setDismissedOrderId(activeOrder.id || null);
       setActiveOrder(null);
@@ -198,39 +188,40 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
   };
 
   const resumePolling = () => {
-    console.log('▶️ Resuming polling');
+    if (DEBUG) console.log('▶️ Resuming polling');
     setIsPollingEnabled(true);
     setDismissedOrderId(null);
+    pollIntervalRef.current = 10000; // Reset to fast polling
   };
 
-  // Polling effect
+  // ✅ Smart polling with dynamic interval
   useEffect(() => {
-    console.log('🔄 Polling effect triggered:', {
-      hasToken: !!token,
-      hasUser: !!user,
-      userId: user?.id,
-      isPollingEnabled,
-    });
-
     if (!token || !user || !isPollingEnabled) {
-      console.log('⏸️ Polling NOT started - missing requirements');
       return;
     }
 
-    console.log('▶️ Starting order polling for user:', user.email);
+    if (DEBUG) console.log('▶️ Starting smart polling');
 
     // Initial fetch
     fetchActiveOrder();
 
-    // Poll every 10 seconds
-    const interval = setInterval(() => {
-      console.log('⏰ Polling interval triggered');
-      fetchActiveOrder();
-    }, 10000);
+    // ✅ Recursive setTimeout with dynamic interval
+    const poll = async () => {
+      await fetchActiveOrder();
+      
+      const interval = pollIntervalRef.current;
+      if (DEBUG) console.log(`⏰ Next poll in ${interval / 1000}s`);
+      
+      timeoutRef.current = setTimeout(poll, interval);
+    };
+
+    timeoutRef.current = setTimeout(poll, pollIntervalRef.current);
 
     return () => {
-      console.log('⏹️ Stopping order polling');
-      clearInterval(interval);
+      if (DEBUG) console.log('⏹️ Stopping polling');
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, [token, user, isPollingEnabled, dismissedOrderId]);
 

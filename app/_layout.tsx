@@ -1,6 +1,9 @@
+// app/_layout.tsx - ROOT LAYOUT - COMPLETE WORKING VERSION
+
 import { useEffect } from 'react';
 import { Stack, router, useSegments, useRootNavigationState } from 'expo-router';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { CartProvider } from '../contexts/CartContext';
 import { OrderTrackingProvider } from '../contexts/OrderTrackingContext';
 import { View, ActivityIndicator, Text } from 'react-native';
 
@@ -14,53 +17,29 @@ function RootLayoutNav() {
       return;
     }
 
-    const inAuthGroup = segments[0] === 'auth';
-    const isPhoneScreen = segments[1] === 'phone';
-    const isLoginScreen = segments[1] === 'login';
-    const isRegisterScreen = segments[1] === 'register';
-    const isVerifyEmailScreen = segments[1] === 'verify-email';
+    const inAuthGroup = segments.length > 0 ? segments[0] === 'auth' : false;
+    const isPhoneScreen = segments.length > 1 ? segments[1] === 'phone' : false;
+    const isLoginScreen = segments.length > 1 ? segments[1] === 'login' : false;
+    const isRegisterScreen = segments.length > 1 ? segments[1] === 'register' : false;
+    const isVerifyEmailScreen = segments.length > 1 ? segments[1] === 'verify-email' : false;
 
-    console.log('🔍 Navigation check:', {
-      hasUser: !!user,
-      hasToken: !!token,
-      userEmail: user?.email,
-      userPhone: user?.phone,
-      inAuthGroup,
-      isPhoneScreen,
-      currentSegments: segments,
-      loading,
-    });
-
-    // Wait for loading to complete
     if (loading) {
-      console.log('⏳ Auth still loading...');
       return;
     }
 
-    // ✅ Allow phone screen even when authenticated
     if (isPhoneScreen) {
-      console.log('📱 On phone screen, allowing access');
-      return;  // Don't redirect away from phone screen
+      return;
     }
 
     if (!token || !user) {
-      // User is not authenticated
-      console.log('🔒 No auth - need to show login');
       if (!inAuthGroup) {
-        console.log('➡️ Redirecting to /auth/login');
         setTimeout(() => {
           router.replace('/auth/login');
         }, 100);
       }
     } else {
-      // User is authenticated
-      console.log('✅ User authenticated:', user.email);
-      
-      // ✅ Don't redirect away from verification screens
       if (inAuthGroup && !isPhoneScreen && !isVerifyEmailScreen) {
-        // Only redirect away from login/register screens
         if (isLoginScreen || isRegisterScreen) {
-          console.log('➡️ Redirecting to home from login/register');
           setTimeout(() => {
             router.replace('/(tabs)');
           }, 100);
@@ -101,9 +80,11 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <OrderTrackingProvider>
-        <RootLayoutNav />
-      </OrderTrackingProvider>
+      <CartProvider>
+        <OrderTrackingProvider>
+          <RootLayoutNav />
+        </OrderTrackingProvider>
+      </CartProvider>
     </AuthProvider>
   );
 }

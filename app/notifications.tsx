@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config/apiConfig';
 import { API_ENDPOINTS } from '../config/apiConfig';
+import { SafeText } from '../components/SafeText';
 
 interface Notification {
   id: string;
@@ -144,7 +145,7 @@ export default function NotificationsScreen() {
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Notifications</Text>
+          <SafeText style={styles.headerTitle}>Notifications</SafeText>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
@@ -160,7 +161,7 @@ export default function NotificationsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <SafeText style={styles.headerTitle}>Notifications</SafeText>
         <View style={styles.placeholder} />
       </View>
 
@@ -211,9 +212,9 @@ export default function NotificationsScreen() {
                     {formatTime(notification.created_at)}
                   </Text>
                 </View>
-                <Text style={styles.notificationMessage} numberOfLines={2}>
+                <SafeText style={styles.notificationMessage} numberOfLines={2}>
                   {notification.message}
-                </Text>
+                </SafeText>
               </View>
               {!notification.read && <View style={styles.unreadDot} />}
             </TouchableOpacity>

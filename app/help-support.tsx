@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config/apiConfig';
+import { SafeText } from '../components/SafeText';
 
 interface SupportCategory {
   value: string;
@@ -274,16 +275,16 @@ Thank you!`;
         </View>
       </View>
       
-      <Text style={styles.ticketMessage} numberOfLines={2}>
+      <SafeText style={styles.ticketMessage} numberOfLines={2}>
         {item.message}
-      </Text>
+      </SafeText>
       
       {/* Show indicators for new responses or message count */}
       <View style={styles.ticketFooter}>
         {item.has_new_admin_response && (
           <View style={styles.newResponseIndicator}>
             <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-            <Text style={styles.newResponseText}>New Response</Text>
+            <SafeText style={styles.newResponseText}>New Response</SafeText>
           </View>
         )}
         
@@ -366,9 +367,9 @@ Thank you!`;
                 ]}>
                   {category.label}
                 </Text>
-                <Text style={styles.categoryOptionDescription}>
+                <SafeText style={styles.categoryOptionDescription}>
                   {category.description}
-                </Text>
+                </SafeText>
               </View>
               {selectedCategory === category.value && (
                 <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
