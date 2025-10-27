@@ -1,5 +1,5 @@
-// contexts/OrderTrackingContext.tsx - OPTIMIZED WITH SMART POLLING
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+// contexts/OrderTrackingContext.tsx - FIXED VERSION
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { API_BASE_URL } from '../config/apiConfig';
 import { useAuth } from './AuthContext';
 
@@ -93,22 +93,30 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
   const [isPollingEnabled, setIsPollingEnabled] = useState(true);
   const [dismissedOrderId, setDismissedOrderId] = useState<string | null>(null);
   
-  // ✅ Smart polling with exponential backoff
-  const pollIntervalRef = useRef(10000); // Start at 10s
+  const pollIntervalRef = useRef(10000);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const consecutiveErrorsRef = useRef(0);
+  const currentTokenRef = useRef(token); // ✅ Track current token
 
-  const fetchActiveOrder = async () => {
-    if (!token || !user || !isPollingEnabled) {
+  // ✅ Update token ref whenever token changes
+  useEffect(() => {
+    currentTokenRef.current = token;
+  }, [token]);
+
+  // ✅ Use useCallback to ensure we always get fresh token
+  const fetchActiveOrder = useCallback(async () => {
+    const currentToken = currentTokenRef.current; // ✅ Get fresh token from ref
+    
+    if (!currentToken || !user || !isPollingEnabled) {
       return;
     }
 
     try {
-      if (DEBUG) console.log('📡 Fetching active order...');
+      if (DEBUG) console.log('📡 Fetching active order with fresh token...');
       
       const response = await fetch(`${API_BASE_URL}/orders/active`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${currentToken}`, // ✅ Use fresh token
           'Content-Type': 'application/json',
         },
       });
@@ -119,16 +127,18 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
         setError(null);
         setDismissedOrderId(null);
         consecutiveErrorsRef.current = 0;
-        
-        // ✅ Slow down polling when no active order
         pollIntervalRef.current = Math.min(pollIntervalRef.current * 1.5, 60000);
         return;
       }
 
       if (response.status === 401) {
-        if (DEBUG) console.log('🔒 Unauthorized (401)');
-        setActiveOrder(null);
+        if (DEBUG) console.log('🔒 Token expired (401) - will retry with refreshed token');
         consecutiveErrorsRef.current++;
+        
+        // ✅ Stop aggressive polling on auth errors
+        if (consecutiveErrorsRef.current > 2) {
+          pollIntervalRef.current = 30000; // Slow down to 30s
+        }
         return;
       }
 
@@ -143,7 +153,6 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Check dismissed orders
       if (dismissedOrderId && data.id !== dismissedOrderId) {
         setDismissedOrderId(null);
         setIsPollingEnabled(true);
@@ -157,8 +166,6 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
       setActiveOrder(data);
       setError(null);
       consecutiveErrorsRef.current = 0;
-      
-      // ✅ Reset to fast polling when order is active
       pollIntervalRef.current = 10000;
       
     } catch (err) {
@@ -166,12 +173,11 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       consecutiveErrorsRef.current++;
       
-      // ✅ Slow down on errors
       if (consecutiveErrorsRef.current > 3) {
         pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 60000);
       }
     }
-  };
+  }, [user, isPollingEnabled, dismissedOrderId]); // ✅ Removed token from deps
 
   const refreshActiveOrder = async () => {
     setLoading(true);
@@ -191,12 +197,14 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
     if (DEBUG) console.log('▶️ Resuming polling');
     setIsPollingEnabled(true);
     setDismissedOrderId(null);
-    pollIntervalRef.current = 10000; // Reset to fast polling
+    pollIntervalRef.current = 10000;
+    consecutiveErrorsRef.current = 0; // ✅ Reset error counter
   };
 
-  // ✅ Smart polling with dynamic interval
+  // ✅ Smart polling with cleanup
   useEffect(() => {
     if (!token || !user || !isPollingEnabled) {
+      if (DEBUG) console.log('⏸️ Polling paused (no token/user or disabled)');
       return;
     }
 
@@ -205,7 +213,6 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
     // Initial fetch
     fetchActiveOrder();
 
-    // ✅ Recursive setTimeout with dynamic interval
     const poll = async () => {
       await fetchActiveOrder();
       
@@ -218,12 +225,13 @@ export function OrderTrackingProvider({ children }: { children: ReactNode }) {
     timeoutRef.current = setTimeout(poll, pollIntervalRef.current);
 
     return () => {
-      if (DEBUG) console.log('⏹️ Stopping polling');
+      if (DEBUG) console.log('⏹️ Stopping polling - cleanup');
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
-  }, [token, user, isPollingEnabled, dismissedOrderId]);
+  }, [token, user, isPollingEnabled, fetchActiveOrder]); // ✅ Include fetchActiveOrder
 
   return (
     <OrderTrackingContext.Provider

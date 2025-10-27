@@ -1,4 +1,4 @@
-// app/order-tracking.tsx - COMPLETE FIXED VERSION
+// app/order-tracking/[orderId].tsx - DYNAMIC ORDER TRACKING
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -15,17 +15,31 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useOrderTracking } from '../contexts/OrderTrackingContext';
-import { useAuth } from '../contexts/AuthContext';
-import { authenticatedFetch } from '../utils/authenticatedFetch';
-import { createApiUrl, API_BASE_URL } from '../config/apiConfig';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useOrderTracking } from '../../contexts/OrderTrackingContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { authenticatedFetch } from '../../utils/authenticatedFetch';
+import { createApiUrl, API_BASE_URL } from '../../config/apiConfig';
 
 import {
   OrderItemsModal,
   TipSection,
   DeliveryPartnerCard,
-} from '../components/order-tracking';
+} from '../../components/order-tracking';
+
+interface Order {
+  _id: string;
+  id?: string;
+  order_status: string;
+  delivery_partner?: any;
+  estimated_delivery_time?: number;
+  items?: any[];
+  total_amount?: number;
+  delivery_address?: any;
+  assigned_at?: string;
+  tip_amount?: number;
+  created_at?: string;
+}
 
 const parseTimestamp = (dateString: string | Date): number => {
   try {
@@ -39,15 +53,7 @@ const parseTimestamp = (dateString: string | Date): number => {
     } else {
       date = dateString;
     }
-    const timestamp = date.getTime();
-    
-    console.log('🕐 Parsing timestamp:', {
-      input: dateString,
-      parsed: new Date(timestamp).toISOString(),
-      timestamp
-    });
-    
-    return timestamp;
+    return date.getTime();
   } catch (error) {
     console.error('❌ Error parsing timestamp:', error);
     return Date.now();
@@ -55,9 +61,15 @@ const parseTimestamp = (dateString: string | Date): number => {
 };
 
 export default function OrderTrackingScreen() {
-  const { activeOrder, loading, refreshActiveOrder } = useOrderTracking();
+  const { orderId: paramOrderId } = useLocalSearchParams<{ orderId?: string }>();
+  const { activeOrder: contextActiveOrder, loading: contextLoading, refreshActiveOrder } = useOrderTracking();
   const { token } = useAuth();
   
+  // ✅ Determine if we're showing a specific order or active order
+  const isSpecificOrder = paramOrderId && paramOrderId !== 'active';
+  
+  const [specificOrder, setSpecificOrder] = useState<Order | null>(null);
+  const [specificOrderLoading, setSpecificOrderLoading] = useState(isSpecificOrder);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTip, setSelectedTip] = useState<number | null>(null);
   const [customTipAmount, setCustomTipAmount] = useState('');
@@ -66,8 +78,6 @@ export default function OrderTrackingScreen() {
   const [partnerRating, setPartnerRating] = useState(0);
   const [submittingRating, setSubmittingRating] = useState(false);
   const [showOrderItemsModal, setShowOrderItemsModal] = useState(false);
-  
-  // ✅ NEW: Shop status state
   const [shopStatus, setShopStatus] = useState<{ is_open: boolean; reopen_time: string | null } | null>(null);
   
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
@@ -75,17 +85,65 @@ export default function OrderTrackingScreen() {
   const assignedTimeRef = useRef<number | null>(null);
   const initialEstimatedMinutesRef = useRef<number | null>(null);
 
-  // ✅ NEW: Fetch shop status
+  // ✅ Use specific order if provided, otherwise use active order from context
+  const displayOrder = isSpecificOrder ? specificOrder : contextActiveOrder;
+  const displayLoading = isSpecificOrder ? specificOrderLoading : contextLoading;
+
+  // ✅ Fetch specific order if orderId is provided
+  useEffect(() => {
+    if (isSpecificOrder && token) {
+      fetchSpecificOrder(paramOrderId);
+    }
+  }, [paramOrderId, token, isSpecificOrder]);
+
+  const fetchSpecificOrder = async (orderId: string) => {
+    if (!token || !orderId) return;
+    
+    setSpecificOrderLoading(true);
+    try {
+      console.log('📡 Fetching specific order:', orderId);
+      
+      const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Specific order loaded:', data);
+        setSpecificOrder(data);
+      } else if (response.status === 404) {
+        Alert.alert('Order Not Found', 'This order could not be found.', [
+          { text: 'OK', onPress: () => router.back() }
+        ]);
+      } else {
+        throw new Error('Failed to fetch order');
+      }
+    } catch (error) {
+      console.error('Error fetching specific order:', error);
+      Alert.alert('Error', 'Failed to load order details', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } finally {
+      setSpecificOrderLoading(false);
+    }
+  };
+
+  // Fetch shop status
   useEffect(() => {
     const fetchShopStatus = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/shop/status`);
         if (response.ok) {
           const status = await response.json();
+          console.log('🏪 [Order Tracking] Shop status:', status);
           setShopStatus(status);
         }
       } catch (error) {
         console.error('Error fetching shop status:', error);
+        setShopStatus({ is_open: true, reopen_time: null });
       }
     };
     
@@ -94,8 +152,9 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  // Countdown timer logic (same as before)
   useEffect(() => {
-    if (!activeOrder) {
+    if (!displayOrder) {
       setTimeRemainingSeconds(null);
       setCountdownInitializedId(null);
       assignedTimeRef.current = null;
@@ -103,8 +162,8 @@ export default function OrderTrackingScreen() {
       return;
     }
 
-    const orderId = activeOrder.id;
-    const orderStatus = activeOrder.order_status;
+    const orderId = displayOrder.id;
+    const orderStatus = displayOrder.order_status;
     
     const validStatuses = ['assigned', 'out_for_delivery'];
 
@@ -117,28 +176,19 @@ export default function OrderTrackingScreen() {
     }
 
     if (countdownInitializedId !== orderId) { 
-      const assignedTimeString = activeOrder.assigned_at;
+      const assignedTimeString = displayOrder.assigned_at;
     
       if (assignedTimeString) {
         assignedTimeRef.current = parseTimestamp(assignedTimeString);
       } else {
-        console.warn('assigned_at is missing for order, using current time for countdown start.');
         assignedTimeRef.current = Date.now(); 
       }
 
-      initialEstimatedMinutesRef.current = activeOrder.estimated_delivery_time || 30;
+      initialEstimatedMinutesRef.current = displayOrder.estimated_delivery_time || 30;
       setCountdownInitializedId(orderId || null);
-
-      console.log('⏱️ Order countdown initialized:', {
-        orderId,
-        assignedAtRaw: assignedTimeString,
-        assignedAtTimestamp: assignedTimeRef.current,
-        initialEstimatedMinutes: initialEstimatedMinutesRef.current,
-      });
     }
 
     if (!assignedTimeRef.current || !initialEstimatedMinutesRef.current) {
-      console.warn('⚠️ Refs are null after attempted initialization. Cannot calculate countdown.');
       setTimeRemainingSeconds(null);
       return;
     }
@@ -153,7 +203,7 @@ export default function OrderTrackingScreen() {
     let remainingSeconds = Math.max(0, totalSecondsAvailable - elapsedSeconds);
 
     setTimeRemainingSeconds(remainingSeconds);
-  }, [activeOrder?.id, activeOrder?.order_status, activeOrder?.assigned_at, activeOrder?.estimated_delivery_time]);
+  }, [displayOrder?.id, displayOrder?.order_status, displayOrder?.assigned_at, displayOrder?.estimated_delivery_time]);
 
   useEffect(() => {
     if (timeRemainingSeconds === null || timeRemainingSeconds <= 0) {
@@ -162,9 +212,7 @@ export default function OrderTrackingScreen() {
 
     const interval = setInterval(() => {
       setTimeRemainingSeconds((prev) => {
-        if (prev === null || prev <= 0) {
-          return 0;
-        }
+        if (prev === null || prev <= 0) return 0;
         return prev - 1;
       });
     }, 1000);
@@ -172,10 +220,8 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [timeRemainingSeconds]);
 
-  // ✅ UPDATED: Format countdown with shop status check
   const formatCountdown = () => {
-    // ✅ Check shop status first
-    if (shopStatus && !shopStatus.is_open) {
+    if (shopStatus && shopStatus.is_open === false) {
       if (shopStatus.reopen_time) {
         try {
           const reopenDate = new Date(shopStatus.reopen_time);
@@ -191,12 +237,12 @@ export default function OrderTrackingScreen() {
       return 'Delivery will start in the morning';
     }
 
-    if (activeOrder?.order_status === 'delivered') {
+    if (displayOrder?.order_status === 'delivered') {
       return 'Arrived';
     }
     
     if (timeRemainingSeconds === null) {
-      const estimatedMinutes = activeOrder?.estimated_delivery_time || 30;
+      const estimatedMinutes = displayOrder?.estimated_delivery_time || 30;
       return `${estimatedMinutes} mins`;
     }
     
@@ -212,7 +258,11 @@ export default function OrderTrackingScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refreshActiveOrder();
+    if (isSpecificOrder && paramOrderId) {
+      await fetchSpecificOrder(paramOrderId);
+    } else {
+      await refreshActiveOrder();
+    }
     setRefreshing(false);
   };
 
@@ -231,34 +281,31 @@ export default function OrderTrackingScreen() {
       `Add ₹${amount} tip for your delivery partner?\n\n100% of the amount will go to them after delivery.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Add Tip',
-          onPress: () => saveTip(amount),
-        },
+        { text: 'Add Tip', onPress: () => saveTip(amount) },
       ]
     );
   };
 
   const saveTip = async (amount: number) => {
-    if (!activeOrder) return;
+    if (!displayOrder) return;
 
     setSavingTip(true);
     try {
       const response = await authenticatedFetch(
-        createApiUrl(`orders/${activeOrder.id}/add-tip`),
+        createApiUrl(`orders/${displayOrder.id}/add-tip`),
         {
           method: 'POST',
           body: JSON.stringify({
             tip_amount: amount,
-            order_id: activeOrder.id,
+            order_id: displayOrder.id,
           }),
         }
       );
 
       if (response.ok) {
-        Alert.alert('Success', `₹${amount} tip added successfully! Thank you for your generosity.`);
+        Alert.alert('Success', `₹${amount} tip added successfully!`);
         setSelectedTip(amount);
-        await refreshActiveOrder();
+        await onRefresh();
       } else {
         const errorData = await response.json();
         Alert.alert('Error', errorData.detail || 'Failed to add tip');
@@ -293,62 +340,54 @@ export default function OrderTrackingScreen() {
   };
 
   const handleSubmitPartnerRating = async (rating: number) => {
-    if (!activeOrder?.delivery_partner || submittingRating) return;
+    if (!displayOrder?.delivery_partner || submittingRating) return;
 
     setPartnerRating(rating);
     setSubmittingRating(true);
 
     try {
       const response = await authenticatedFetch(
-        createApiUrl(`orders/${activeOrder.id}/rate-partner`),
+        createApiUrl(`orders/${displayOrder.id}/rate-partner`),
         {
           method: 'POST',
           body: JSON.stringify({
             partner_rating: rating,
-            order_id: activeOrder.id,
+            order_id: displayOrder.id,
           }),
         }
       );
 
       if (response.ok) {
-        Alert.alert('Thank you!', 'Your rating for the delivery partner has been submitted.');
+        Alert.alert('Thank you!', 'Your rating has been submitted.');
       } else {
-        Alert.alert('Error', 'Failed to submit rating. Please try again.');
+        Alert.alert('Error', 'Failed to submit rating.');
         setPartnerRating(0);
       }
     } catch (error) {
       console.error('Error rating partner:', error);
-      Alert.alert('Error', 'Failed to submit rating. Please try again.');
+      Alert.alert('Error', 'Failed to submit rating.');
       setPartnerRating(0);
     } finally {
       setSubmittingRating(false);
     }
   };
 
-  const getStatusColor = () => {
-    return '#00A65A';
-  };
+  const getStatusColor = () => '#00A65A';
 
   const getStatusText = (status: string) => {
-    switch (status) {
-      case 'preparing':
-        return 'Preparing your order';
-      case 'assigning':
-        return 'Assigning delivery partner shortly';
-      case 'assigned':
-        return 'Delivery partner assigned';
-      case 'out_for_delivery':
-        return 'On the way';
-      case 'delivered':
-        return 'Order delivered';
-      default:
-        return 'Order in progress';
-    }
+    const texts: {[key: string]: string} = {
+      preparing: 'Preparing your order',
+      assigning: 'Assigning delivery partner shortly',
+      assigned: 'Delivery partner assigned',
+      out_for_delivery: 'On the way',
+      delivered: 'Order delivered',
+    };
+    return texts[status] || 'Order in progress';
   };
 
-  const showDeliveryPartner = activeOrder && 
-    activeOrder.delivery_partner && 
-    ['assigned', 'out_for_delivery', 'delivered'].includes(activeOrder.order_status);
+  const showDeliveryPartner = displayOrder && 
+    displayOrder.delivery_partner && 
+    ['assigned', 'out_for_delivery', 'delivered'].includes(displayOrder.order_status);
 
   const renderCustomTipModal = () => (
     <Modal
@@ -358,10 +397,7 @@ export default function OrderTrackingScreen() {
       onRequestClose={() => setShowCustomTipModal(false)}
     >
       <View style={styles.modalOverlay}>
-        <Pressable 
-          style={styles.modalBackdrop} 
-          onPress={() => setShowCustomTipModal(false)}
-        />
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowCustomTipModal(false)} />
         <View style={styles.customTipModal}>
           <View style={styles.customTipHeader}>
             <Text style={styles.customTipTitle}>Enter Tip Amount</Text>
@@ -381,23 +417,17 @@ export default function OrderTrackingScreen() {
               autoFocus
               maxLength={3}
             />
-            <Text style={styles.customTipHint}>Maximum tip amount: ₹500</Text>
+            <Text style={styles.customTipHint}>Maximum: ₹500</Text>
           </View>
           
           <View style={styles.customTipButtons}>
             <TouchableOpacity
               style={styles.customTipCancelButton}
-              onPress={() => {
-                setShowCustomTipModal(false);
-                setCustomTipAmount('');
-              }}
+              onPress={() => { setShowCustomTipModal(false); setCustomTipAmount(''); }}
             >
               <Text style={styles.customTipCancelText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.customTipConfirmButton}
-              onPress={handleCustomTipSubmit}
-            >
+            <TouchableOpacity style={styles.customTipConfirmButton} onPress={handleCustomTipSubmit}>
               <Text style={styles.customTipConfirmText}>Add Tip</Text>
             </TouchableOpacity>
           </View>
@@ -406,18 +436,18 @@ export default function OrderTrackingScreen() {
     </Modal>
   );
 
-  if (loading && !activeOrder) {
+  if (displayLoading && !displayOrder) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#00A65A" />
-          <Text style={styles.loadingText}>Loading order status...</Text>
+          <Text style={styles.loadingText}>Loading order...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!activeOrder) {
+  if (!displayOrder) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -427,14 +457,11 @@ export default function OrderTrackingScreen() {
         </View>
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyTitle}>No Active Orders</Text>
+          <Text style={styles.emptyTitle}>Order Not Found</Text>
           <Text style={styles.emptySubtitle}>
-            You don't have any orders being delivered right now
+            {isSpecificOrder ? 'This order could not be found' : 'You don\'t have any active orders'}
           </Text>
-          <TouchableOpacity
-            style={styles.shopButton}
-            onPress={() => router.push('/(tabs)')}
-          >
+          <TouchableOpacity style={styles.shopButton} onPress={() => router.push('/(tabs)')}>
             <Text style={styles.shopButtonText}>Start Shopping</Text>
           </TouchableOpacity>
         </View>
@@ -454,12 +481,10 @@ export default function OrderTrackingScreen() {
           </View>
 
           <View style={styles.statusSection}>
-            <Text style={styles.statusTitle}>{getStatusText(activeOrder.order_status)}</Text>
+            <Text style={styles.statusTitle}>{getStatusText(displayOrder.order_status)}</Text>
             <View style={styles.deliveryInfo}>
               <Ionicons name="time-outline" size={18} color="#fff" />
-              <Text style={styles.deliveryText}>
-                {formatCountdown()}
-              </Text>
+              <Text style={styles.deliveryText}>{formatCountdown()}</Text>
               <TouchableOpacity onPress={onRefresh} style={styles.refreshIcon}>
                 <Ionicons name="refresh" size={20} color="#fff" />
               </TouchableOpacity>
@@ -471,35 +496,27 @@ export default function OrderTrackingScreen() {
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <TipSection
           selectedTip={selectedTip}
           onSelectTip={handleTipSelection}
           saving={savingTip}
-          orderStatus={activeOrder.order_status}
-          tipAmount={activeOrder.tip_amount}
+          orderStatus={displayOrder.order_status}
+          tipAmount={displayOrder.tip_amount}
         />
 
-        {showDeliveryPartner && (
-          <DeliveryPartnerCard partner={activeOrder.delivery_partner!} />
-        )}
+        {showDeliveryPartner && <DeliveryPartnerCard partner={displayOrder.delivery_partner!} />}
 
         <View style={styles.deliveryDetailsCard}>
           <View style={styles.deliveryDetailsHeader}>
-            <Text style={styles.deliveryDetailsTitle}>
-              All your delivery details in one place 👇
-            </Text>
+            <Text style={styles.deliveryDetailsTitle}>All your delivery details in one place 👇</Text>
           </View>
 
           <View style={styles.detailRow}>
             <Ionicons name="call-outline" size={24} color="#666" />
             <View style={styles.detailTextContainer}>
-              <Text style={styles.detailTitle}>
-                {activeOrder.delivery_address?.phone || 'Phone Number'}
-              </Text>
+              <Text style={styles.detailTitle}>{displayOrder.delivery_address?.phone || 'Phone Number'}</Text>
               <Text style={styles.detailSubtitle}>Delivery partner may call this number</Text>
             </View>
           </View>
@@ -507,13 +524,11 @@ export default function OrderTrackingScreen() {
           <View style={styles.detailRow}>
             <Ionicons name="home-outline" size={24} color="#666" />
             <View style={styles.detailTextContainer}>
-              <Text style={styles.detailTitle}>
-                {activeOrder.delivery_address?.label || 'Delivery Address'}
-              </Text>
+              <Text style={styles.detailTitle}>{displayOrder.delivery_address?.label || 'Delivery Address'}</Text>
               <Text style={styles.detailSubtitle} numberOfLines={2}>
-                {activeOrder.delivery_address?.street || activeOrder.delivery_address?.address || 'Address not available'}
-                {activeOrder.delivery_address?.city && `, ${activeOrder.delivery_address.city}`}
-                {activeOrder.delivery_address?.pincode && ` - ${activeOrder.delivery_address.pincode}`}
+                {displayOrder.delivery_address?.street || displayOrder.delivery_address?.address || 'Address not available'}
+                {displayOrder.delivery_address?.city && `, ${displayOrder.delivery_address.city}`}
+                {displayOrder.delivery_address?.pincode && ` - ${displayOrder.delivery_address.pincode}`}
               </Text>
             </View>
           </View>
@@ -522,21 +537,16 @@ export default function OrderTrackingScreen() {
         <View style={styles.restaurantCard}>
           <TouchableOpacity 
             style={styles.orderDetailsRow}
-            onPress={() => {
-              console.log('📄 Opening items modal with data:', activeOrder?.items);
-              setShowOrderItemsModal(true);
-            }}
+            onPress={() => setShowOrderItemsModal(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="receipt-outline" size={24} color="#666" />
             <View style={styles.orderDetailsText}>
-              <Text style={styles.orderNumber}>Order #{activeOrder.id}</Text>
+              <Text style={styles.orderNumber}>Order #{displayOrder.id}</Text>
               <View style={styles.orderItemsPreview}>
-                <View style={styles.vegIcon}>
-                  <View style={styles.vegDot} />
-                </View>
+                <View style={styles.vegIcon}><View style={styles.vegDot} /></View>
                 <Text style={styles.orderItemsText} numberOfLines={1}>
-                  {activeOrder.items?.length || 0} items • ₹{activeOrder.total_amount?.toFixed(2) || '0.00'}
+                  {displayOrder.items?.length || 0} items • ₹{displayOrder.total_amount?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
@@ -544,16 +554,14 @@ export default function OrderTrackingScreen() {
           </TouchableOpacity>
         </View>
 
-        {activeOrder.order_status === 'delivered' && showDeliveryPartner && (
+        {displayOrder.order_status === 'delivered' && showDeliveryPartner && (
           <View style={styles.ratePartnerSection}>
             <View style={styles.ratePartnerHeader}>
               <View style={styles.partnerAvatarSmall}>
                 <Ionicons name="person" size={20} color="#fff" />
               </View>
               <View style={styles.ratePartnerTextContainer}>
-                <Text style={styles.ratePartnerTitle}>
-                  {activeOrder.delivery_partner!.name || 'Delivery Partner'}
-                </Text>
+                <Text style={styles.ratePartnerTitle}>{displayOrder.delivery_partner!.name || 'Delivery Partner'}</Text>
                 <Text style={styles.ratePartnerSubtitle}>How was your delivery experience?</Text>
               </View>
             </View>
@@ -563,7 +571,6 @@ export default function OrderTrackingScreen() {
                   key={star}
                   onPress={() => !submittingRating && handleSubmitPartnerRating(star)}
                   disabled={submittingRating}
-                  hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
                 >
                   <Ionicons
                     name={partnerRating >= star ? 'star' : 'star-outline'}
@@ -575,18 +582,13 @@ export default function OrderTrackingScreen() {
               ))}
             </View>
             {partnerRating > 0 && (
-              <Text style={styles.ratingThankYou}>
-                Thank you for rating your delivery partner!
-              </Text>
+              <Text style={styles.ratingThankYou}>Thank you for rating your delivery partner!</Text>
             )}
           </View>
         )}
 
         <View style={styles.helpSection}>
-          <TouchableOpacity 
-            style={styles.helpRow}
-            onPress={() => router.push('/help-support')}
-          >
+          <TouchableOpacity style={styles.helpRow} onPress={() => router.push('/help-support')}>
             <View style={styles.helpIconContainer}>
               <Ionicons name="headset-outline" size={28} color="#E74C3C" />
             </View>
@@ -604,7 +606,7 @@ export default function OrderTrackingScreen() {
       <OrderItemsModal
         visible={showOrderItemsModal}
         onClose={() => setShowOrderItemsModal(false)}
-        order={activeOrder}
+        order={displayOrder}
       />
 
       {renderCustomTipModal()}

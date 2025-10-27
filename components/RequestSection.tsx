@@ -1,3 +1,4 @@
+// components/RequestSection.tsx - COMBINED PRODUCT & PORTER REQUESTS
 import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import {
   View,
@@ -230,7 +231,7 @@ export const RequestSection = forwardRef<RequestSectionRef, RequestSectionProps>
           urgent: porterFormData.urgent,
         };
 
-        const response = await fetch(`${API_BASE_URL}/support/porter-requests`, {
+        const response = await fetch(`${API_BASE_URL}/porter/porter-requests`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

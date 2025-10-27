@@ -1,3 +1,4 @@
+// app/orders.tsx - MINIMAL UPDATE (ONLY ADDED PORTER TAB)
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -61,21 +62,53 @@ interface ProductRequest {
   updated_at: string;
 }
 
+// ✅ NEW: Porter Request Interface
+interface PorterRequest {
+  _id: string;
+  id: string;
+  pickup_address: {
+    address: string;
+    city: string;
+    pincode: string;
+  };
+  delivery_address: {
+    address: string;
+    city: string;
+    pincode: string;
+  };
+  phone: string;
+  description: string;
+  estimated_distance: number | null;
+  package_size: string;
+  urgent: boolean;
+  status: string;
+  assigned_partner_name: string | null;
+  estimated_cost: number | null;
+  actual_cost: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export default function OrdersScreen() {
   const { token } = useAuth();
-  const [activeTab, setActiveTab] = useState<'orders' | 'requests'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'requests' | 'porter'>('orders'); // ✅ Added 'porter'
   const [orders, setOrders] = useState<Order[]>([]);
   const [productRequests, setProductRequests] = useState<ProductRequest[]>([]);
+  const [porterRequests, setPorterRequests] = useState<PorterRequest[]>([]); // ✅ NEW
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedPorter, setSelectedPorter] = useState<PorterRequest | null>(null); // ✅ NEW
   const [modalVisible, setModalVisible] = useState(false);
+  const [porterModalVisible, setPorterModalVisible] = useState(false); // ✅ NEW
 
   useEffect(() => {
     if (activeTab === 'orders') {
       fetchOrders();
-    } else {
+    } else if (activeTab === 'requests') {
       fetchProductRequests();
+    } else if (activeTab === 'porter') { // ✅ NEW
+      fetchPorterRequests();
     }
   }, [activeTab]);
 
@@ -130,12 +163,40 @@ export default function OrdersScreen() {
     }
   };
 
+  // ✅ NEW: Fetch Porter Requests
+  const fetchPorterRequests = async () => {
+    if (!token) return;
+    
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/porter/porter-requests/my-requests`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPorterRequests(data.requests || []);
+      } else {
+        console.error('Failed to fetch porter requests');
+      }
+    } catch (error) {
+      console.error('Error fetching porter requests:', error);
+      Alert.alert('Error', 'Failed to load porter requests');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     if (activeTab === 'orders') {
       await fetchOrders();
-    } else {
+    } else if (activeTab === 'requests') {
       await fetchProductRequests();
+    } else if (activeTab === 'porter') { // ✅ NEW
+      await fetchPorterRequests();
     }
     setRefreshing(false);
   };
@@ -148,6 +209,17 @@ export default function OrdersScreen() {
   const closeOrderDetails = () => {
     setModalVisible(false);
     setSelectedOrder(null);
+  };
+
+  // ✅ NEW: Porter Details
+  const openPorterDetails = (porter: PorterRequest) => {
+    setSelectedPorter(porter);
+    setPorterModalVisible(true);
+  };
+
+  const closePorterDetails = () => {
+    setPorterModalVisible(false);
+    setSelectedPorter(null);
   };
 
   const getStatusColor = (status: string) => {
@@ -164,6 +236,10 @@ export default function OrdersScreen() {
         return '#34C759';
       case 'cancelled':
         return '#FF3B30';
+      case 'assigned': // ✅ Porter status
+        return '#007AFF';
+      case 'in_transit': // ✅ Porter status
+        return '#5856D6';
       default:
         return '#8E8E93';
     }
@@ -183,6 +259,10 @@ export default function OrdersScreen() {
         return 'Delivered';
       case 'cancelled':
         return 'Cancelled';
+      case 'assigned': // ✅ Porter status
+        return 'Assigned';
+      case 'in_transit': // ✅ Porter status
+        return 'In Transit';
       default:
         return status;
     }
@@ -218,6 +298,16 @@ export default function OrdersScreen() {
       });
     } catch (error) {
       return 'Invalid Date';
+    }
+  };
+
+  // ✅ NEW: Package size icons
+  const getPackageSizeIcon = (size: string) => {
+    switch (size) {
+      case 'small': return '📦';
+      case 'medium': return '📦📦';
+      case 'large': return '📦📦📦';
+      default: return '📦';
     }
   };
 
@@ -296,15 +386,66 @@ export default function OrdersScreen() {
         <Text style={styles.requestDescription} numberOfLines={2}>
           {item.description}
         </Text>
-        
-        {/* <View style={styles.requestFooter}>
-          <View style={styles.requestVotes}>
-            <Ionicons name="thumbs-up-outline" size={16} color="#007AFF" />
-            <Text style={styles.votesText}>{item.votes} votes</Text>
-          </View>
-          <Text style={styles.requestDate}>{formatDate(item.created_at)}</Text>
-        </View> */}
       </View>
+    );
+  };
+
+  // ✅ NEW: Render Porter Request Card
+  const renderPorterRequest = ({ item }: { item: PorterRequest }) => {
+    return (
+      <TouchableOpacity 
+        style={styles.requestCard}
+        onPress={() => openPorterDetails(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.requestHeader}>
+          <View style={styles.porterRoute}>
+            <View style={styles.porterLocationRow}>
+              <Ionicons name="location" size={14} color="#34C759" />
+              <Text style={styles.porterCity} numberOfLines={1}>{item.pickup_address.city}</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={14} color="#999" style={{ marginHorizontal: 6 }} />
+            <View style={styles.porterLocationRow}>
+              <Ionicons name="location" size={14} color="#FF3B30" />
+              <Text style={styles.porterCity} numberOfLines={1}>{item.delivery_address.city}</Text>
+            </View>
+          </View>
+          <View style={[
+            styles.requestStatusBadge,
+            { backgroundColor: getStatusColor(item.status) }
+          ]}>
+            <Text style={styles.requestStatusText}>
+              {getStatusText(item.status).toUpperCase()}
+            </Text>
+          </View>
+        </View>
+        
+        <Text style={styles.requestDescription} numberOfLines={2}>
+          {item.description}
+        </Text>
+        
+        <View style={styles.porterMeta}>
+          <Text style={styles.porterPackageSize}>
+            {getPackageSizeIcon(item.package_size)} {item.package_size}
+          </Text>
+          {item.urgent && (
+            <View style={styles.porterUrgentBadge}>
+              <Ionicons name="flash" size={10} color="#fff" />
+              <Text style={styles.porterUrgentText}>URGENT</Text>
+            </View>
+          )}
+          {item.estimated_cost && (
+            <Text style={styles.porterCost}>₹{item.estimated_cost.toFixed(2)}</Text>
+          )}
+        </View>
+
+        {item.assigned_partner_name && (
+          <View style={styles.porterPartner}>
+            <Ionicons name="person-circle-outline" size={14} color="#007AFF" />
+            <Text style={styles.porterPartnerText}>Partner: {item.assigned_partner_name}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
     );
   };
 
@@ -425,6 +566,97 @@ export default function OrdersScreen() {
     );
   };
 
+  // ✅ NEW: Porter Details Modal
+  const PorterDetailsModal = () => {
+    if (!selectedPorter) return null;
+    
+    return (
+      <Modal
+        visible={porterModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closePorterDetails}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Porter Request Details</Text>
+            <TouchableOpacity onPress={closePorterDetails} style={styles.closeButton}>
+              <Ionicons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.detailSection}>
+              <Text style={styles.sectionTitle}>Status</Text>
+              <View style={[
+                styles.inlineStatusBadge,
+                { backgroundColor: getStatusColor(selectedPorter.status) }
+              ]}>
+                <Text style={styles.inlineStatusText}>
+                  {getStatusText(selectedPorter.status)}
+                </Text>
+              </View>
+              {selectedPorter.urgent && (
+                <View style={styles.urgentAlert}>
+                  <Ionicons name="flash" size={16} color="#FF9500" />
+                  <Text style={styles.urgentAlertText}>Urgent Delivery</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.detailSection}>
+              <View style={styles.locationHeader}>
+                <Ionicons name="location" size={18} color="#34C759" />
+                <Text style={styles.sectionTitle}>Pickup Location</Text>
+              </View>
+              <Text style={styles.addressText}>{selectedPorter.pickup_address.address}</Text>
+              <Text style={styles.addressText}>
+                {selectedPorter.pickup_address.city}, PIN: {selectedPorter.pickup_address.pincode}
+              </Text>
+            </View>
+
+            <View style={styles.detailSection}>
+              <View style={styles.locationHeader}>
+                <Ionicons name="location" size={18} color="#FF3B30" />
+                <Text style={styles.sectionTitle}>Delivery Location</Text>
+              </View>
+              <Text style={styles.addressText}>{selectedPorter.delivery_address.address}</Text>
+              <Text style={styles.addressText}>
+                {selectedPorter.delivery_address.city}, PIN: {selectedPorter.delivery_address.pincode}
+              </Text>
+            </View>
+
+            <View style={styles.detailSection}>
+              <Text style={styles.sectionTitle}>Package Details</Text>
+              <Text style={styles.addressText}>
+                {getPackageSizeIcon(selectedPorter.package_size)} Package Size: {selectedPorter.package_size}
+              </Text>
+              <Text style={styles.addressText}>Description: {selectedPorter.description}</Text>
+              {selectedPorter.estimated_distance && (
+                <Text style={styles.addressText}>Distance: {selectedPorter.estimated_distance} km</Text>
+              )}
+              <Text style={styles.addressText}>Contact: {selectedPorter.phone}</Text>
+            </View>
+
+            {selectedPorter.assigned_partner_name && (
+              <View style={styles.detailSection}>
+                <Text style={styles.sectionTitle}>Delivery Partner</Text>
+                <Text style={styles.partnerName}>{selectedPorter.assigned_partner_name}</Text>
+              </View>
+            )}
+
+            {selectedPorter.estimated_cost && (
+              <View style={styles.detailSection}>
+                <Text style={styles.sectionTitle}>Estimated Cost</Text>
+                <Text style={styles.costAmount}>₹{selectedPorter.estimated_cost.toFixed(2)}</Text>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -446,6 +678,7 @@ export default function OrdersScreen() {
         <View style={styles.placeholder} />
       </View>
 
+      {/* ✅ UPDATED: Added Porter Tab */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'orders' && styles.activeTab]}
@@ -460,7 +693,15 @@ export default function OrdersScreen() {
           onPress={() => setActiveTab('requests')}
         >
           <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
-            Requested Products
+            Products
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'porter' && styles.activeTab]}
+          onPress={() => setActiveTab('porter')}
+        >
+          <Text style={[styles.tabText, activeTab === 'porter' && styles.activeTabText]}>
+            Porter
           </Text>
         </TouchableOpacity>
       </View>
@@ -498,7 +739,7 @@ export default function OrdersScreen() {
             contentContainerStyle={styles.ordersListContent}
           />
         )
-      ) : (
+      ) : activeTab === 'requests' ? (
         productRequests.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="cube-outline" size={64} color="#ccc" />
@@ -525,9 +766,38 @@ export default function OrdersScreen() {
             contentContainerStyle={styles.ordersListContent}
           />
         )
+      ) : (
+        // ✅ NEW: Porter Requests Tab Content
+        porterRequests.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="bicycle-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyTitle}>No porter requests</Text>
+            <Text style={styles.emptySubtitle}>
+              Request porter service from the home screen
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={porterRequests}
+            renderItem={renderPorterRequest}
+            keyExtractor={(item) => item._id}
+            style={styles.ordersList}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={['#007AFF']}
+                tintColor="#007AFF"
+              />
+            }
+            contentContainerStyle={styles.ordersListContent}
+          />
+        )
       )}
 
       <OrderDetailsModal />
+      <PorterDetailsModal />
     </SafeAreaView>
   );
 }
@@ -575,7 +845,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#007AFF',
   },
   tabText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
     color: '#666',
   },
@@ -699,6 +969,120 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#007AFF',
   },
+  requestCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  requestHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  requestName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+    marginRight: 8,
+  },
+  requestStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  requestStatusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  requestBrand: {
+    fontSize: 13,
+    color: '#007AFF',
+    marginBottom: 4,
+  },
+  requestCategory: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
+  },
+  requestDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  // ✅ NEW: Porter-specific styles
+  porterRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  porterLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  porterCity: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    marginLeft: 4,
+    flex: 1,
+  },
+  porterMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  porterPackageSize: {
+    fontSize: 13,
+    color: '#666',
+  },
+  porterUrgentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF9500',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 2,
+  },
+  porterUrgentText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  porterCost: {
+    fontSize: 14,
+    color: '#34C759',
+    fontWeight: '600',
+    marginLeft: 'auto',
+  },
+  porterPartner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  porterPartnerText: {
+    fontSize: 13,
+    color: '#007AFF',
+    marginLeft: 6,
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: '#f8f9fa',
@@ -754,8 +1138,9 @@ const styles = StyleSheet.create({
   },
   inlineStatusBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 12,
+    alignSelf: 'flex-start',
   },
   inlineStatusText: {
     color: '#fff',
@@ -793,6 +1178,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     marginBottom: 4,
+    lineHeight: 20,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -823,76 +1209,35 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#007AFF',
   },
-  requestCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  requestHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  requestName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    marginRight: 8,
-  },
-  requestStatusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  requestStatusText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  requestBrand: {
-    fontSize: 13,
-    color: '#007AFF',
-    marginBottom: 4,
-  },
-  requestCategory: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 8,
-  },
-  requestDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  requestFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 12,
-  },
-  requestVotes: {
+  // ✅ NEW: Porter modal styles
+  urgentAlert: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 8,
   },
-  votesText: {
+  urgentAlertText: {
     fontSize: 13,
-    color: '#007AFF',
+    fontWeight: '600',
+    color: '#E65100',
     marginLeft: 6,
-    fontWeight: '500',
   },
-  requestDate: {
-    fontSize: 12,
-    color: '#999',
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  partnerName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#007AFF',
+  },
+  costAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#34C759',
   },
 });

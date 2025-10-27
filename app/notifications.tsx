@@ -82,7 +82,7 @@ export default function NotificationsScreen() {
     }
 
     if (notification.type === 'order' && notification.order_id) {
-      router.push('/order-tracking');
+      router.push(`/order-tracking/${notification.order_id}`);
     }
   };
 

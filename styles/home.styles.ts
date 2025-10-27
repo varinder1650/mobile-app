@@ -439,4 +439,21 @@ export const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  porterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#FFF0EB',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FF6B35',
+    marginRight: 8,
+  },
+  porterText: {
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF6B35',
+  },
 });

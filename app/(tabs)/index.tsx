@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - COMPLETE OPTIMIZED VERSION
+// app/(tabs)/index.tsx - FIXED VERSION (No confirmation dialogs)
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
@@ -15,7 +15,7 @@ import { API_ENDPOINTS, API_BASE_URL } from '../../config/apiConfig';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCart } from '../../contexts/CartContext';
 
-import { RequestProductRef } from '../../components/RequestProductSection';
+import { RequestSection, RequestSectionRef } from '../../components/RequestSection';
 import TopBar from '../../components/home/TopBar';
 import SearchBar from '../../components/home/SearchBar';
 import CategoryFilterRow from '../../components/home/CategoryFilterRow';
@@ -23,8 +23,7 @@ import ProductTile from '../../components/home/ProductTile';
 import CategorySection from '../../components/home/CategorySection';
 import AnimatedLogo from '../../components/home/AnimatedLogo';
 import CartNotification from '../../components/home/CartNotification';
-import RequestProductSectionWrapper from '../../components/home/RequestProductSectionWrapper';
-import { ShopClosedModal } from '../../components/home/ShopClosedModal';
+import { ShopClosedBanner } from '../../components/home/ShopClosedBanner';
 
 import { Product, Category } from '../../types/home.types';
 import { styles } from '../../styles/home.styles';
@@ -57,13 +56,11 @@ const HomeScreen = () => {
   const [userAddress, setUserAddress] = useState<string>('Add Address');
   const [addingToCart, setAddingToCart] = useState<{[key: string]: boolean}>({});
   const [shopStatus, setShopStatus] = useState<ShopStatus | null>(null);
-  const [showShopClosedModal, setShowShopClosedModal] = useState(false);
-  const [shopStatusChecked, setShopStatusChecked] = useState(false);
   
   const initialDataFetched = useRef(false);
   const lastFetchTime = useRef(0);
   const isFetching = useRef(false);
-  const requestFormRef = useRef<RequestProductRef>(null);
+  const requestFormRef = useRef<RequestSectionRef>(null);
 
   const isGridMode = useMemo(() => {
     return Boolean(searchQuery.trim() || selectedCategory);
@@ -78,12 +75,6 @@ const HomeScreen = () => {
         const status = await response.json();
         if (DEBUG) console.log('🏪 Shop status:', status);
         setShopStatus(status);
-        
-        if (!status.is_open && !shopStatusChecked) {
-          if (DEBUG) console.log('⚠️ Shop is closed, showing modal');
-          setShowShopClosedModal(true);
-          setShopStatusChecked(true);
-        }
       } else {
         if (DEBUG) console.log('⚠️ Failed to fetch shop status, assuming open');
         setShopStatus({ is_open: true, reopen_time: null, reason: null });
@@ -92,7 +83,7 @@ const HomeScreen = () => {
       if (DEBUG) console.error('❌ Error fetching shop status:', error);
       setShopStatus({ is_open: true, reopen_time: null, reason: null });
     }
-  }, [shopStatusChecked]);
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (isFetching.current) {
@@ -248,11 +239,6 @@ const HomeScreen = () => {
   }, [token]);
 
   const addToCart = useCallback(async (productId: string) => {
-    if (shopStatus && !shopStatus.is_open) {
-      setShowShopClosedModal(true);
-      return;
-    }
-
     if (!token) {
       Alert.alert(
         'Login Required',
@@ -286,16 +272,9 @@ const HomeScreen = () => {
     }
     
     setAddingToCart(prev => ({ ...prev, [productId]: false }));
-  }, [token, products, filteredProducts, shopStatus, addToCartContext]);
+  }, [token, products, filteredProducts, addToCartContext]);
 
   const updateCartQuantity = useCallback(async (productId: string, newQuantity: number) => {
-    const currentQty = cartQuantities[productId] || 0;
-    
-    if (shopStatus && !shopStatus.is_open && newQuantity > currentQty) {
-      setShowShopClosedModal(true);
-      return;
-    }
-
     if (!token) {
       Alert.alert('Error', 'Please login to manage cart');
       return;
@@ -304,7 +283,7 @@ const HomeScreen = () => {
     setAddingToCart(prev => ({ ...prev, [productId]: true }));
     await updateCartQuantityContext(productId, newQuantity);
     setAddingToCart(prev => ({ ...prev, [productId]: false }));
-  }, [token, cartQuantities, shopStatus, updateCartQuantityContext]);
+  }, [token, updateCartQuantityContext]);
 
   useEffect(() => {
     fetchShopStatus();
@@ -348,7 +327,6 @@ const HomeScreen = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     initialDataFetched.current = false;
-    setShopStatusChecked(false);
     
     await Promise.all([
       fetchData(),
@@ -370,11 +348,7 @@ const HomeScreen = () => {
   }, []);
 
   const handleRequestSubmitted = useCallback(() => {
-    Alert.alert('Thank you!', 'Your product request has been submitted.');
-  }, []);
-
-  const handleCloseShopModal = useCallback(() => {
-    setShowShopClosedModal(false);
+    Alert.alert('Thank you!', 'Your request has been submitted.');
   }, []);
 
   if (loading) {
@@ -395,6 +369,15 @@ const HomeScreen = () => {
         authLoading={authLoading}
         token={token}
       />
+      
+      {/* ✅ Shop Closed Banner - Just shows info, doesn't block */}
+      {shopStatus && !shopStatus.is_open && (
+        <ShopClosedBanner 
+          reason={shopStatus.reason}
+          reopenTime={shopStatus.reopen_time}
+        />
+      )}
+      
       <SearchBar 
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -433,9 +416,9 @@ const HomeScreen = () => {
             </View>
           }
           ListFooterComponent={() => (
-            <RequestProductSectionWrapper 
-              requestFormRef={requestFormRef}
-              handleRequestSubmitted={handleRequestSubmitted}
+            <RequestSection 
+              ref={requestFormRef}
+              onRequestSubmitted={handleRequestSubmitted}
             />
           )}
           showsVerticalScrollIndicator={false}
@@ -472,9 +455,9 @@ const HomeScreen = () => {
           )}
           keyExtractor={(item, index) => `category-section-${item.id}-${index}`}
           ListFooterComponent={() => (
-            <RequestProductSectionWrapper 
-              requestFormRef={requestFormRef}
-              handleRequestSubmitted={handleRequestSubmitted}
+            <RequestSection 
+              ref={requestFormRef}
+              onRequestSubmitted={handleRequestSubmitted}
             />
           )}
           ListEmptyComponent={
@@ -504,13 +487,6 @@ const HomeScreen = () => {
       )}
       
       <CartNotification showCartNotification={showCartNotification} />
-      
-      <ShopClosedModal
-        visible={showShopClosedModal}
-        onClose={handleCloseShopModal}
-        reopenTime={shopStatus?.reopen_time || null}
-        reason={shopStatus?.reason || null}
-      />
     </SafeAreaView>
   );
 };
