@@ -1,4 +1,4 @@
-// components/home/PorterRequestSectionWrapper.tsx
+// components/home/PorterRequestSectionWrapper.tsx - RESTORE ORIGINAL WRAPPER
 import React from 'react';
 import { PorterRequestSection, PorterRequestRef } from '../PorterRequestSection';
 

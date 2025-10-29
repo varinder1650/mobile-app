@@ -1,659 +1,388 @@
-import React, { useState, forwardRef, useImperativeHandle } from 'react';
+// components/PorterRequestSection.tsx - UPDATED VERSION
+import React, { forwardRef, useImperativeHandle, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
-  Alert,
-  ActivityIndicator,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
+  Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../contexts/AuthContext';
-import { API_BASE_URL } from '../config/apiConfig';
 import { router } from 'expo-router';
+
+const { width } = Dimensions.get('window');
+
+export interface PorterRequestRef {
+  openPorterRequest: () => void;
+  closePorterRequest: () => void;
+}
 
 interface PorterRequestSectionProps {
   onRequestSubmitted?: () => void;
 }
 
-export interface PorterRequestRef {
-  openForm: () => void;
-}
-
 export const PorterRequestSection = forwardRef<PorterRequestRef, PorterRequestSectionProps>(
   ({ onRequestSubmitted }, ref) => {
-    const { token, user } = useAuth();
-    const [showModal, setShowModal] = useState(false);
-    const [loading, setLoading] = useState(false);
-    
-    const [formData, setFormData] = useState({
-      pickup_address: '',
-      pickup_city: '',
-      pickup_pincode: '',
-      delivery_address: '',
-      delivery_city: '',
-      delivery_pincode: '',
-      phone: '',
-      description: '',
-      estimated_distance: '',
-      package_size: 'small',
-      urgent: false,
-    });
+    const [modalVisible, setModalVisible] = useState(false);
 
     useImperativeHandle(ref, () => ({
-      openForm: () => {
-        setShowModal(true);
-      }
+      openPorterRequest: () => {
+        setModalVisible(true);
+      },
+      closePorterRequest: () => {
+        setModalVisible(false);
+      },
     }));
 
-    const validateForm = () => {
-      if (!formData.pickup_address.trim() || formData.pickup_address.trim().length < 10) {
-        Alert.alert('Error', 'Please enter a valid pickup address (minimum 10 characters)');
-        return false;
-      }
-
-      if (!formData.pickup_city.trim()) {
-        Alert.alert('Error', 'Please enter pickup city');
-        return false;
-      }
-
-      if (!formData.pickup_pincode.trim() || !/^\d{6}$/.test(formData.pickup_pincode)) {
-        Alert.alert('Error', 'Please enter a valid 6-digit pickup pincode');
-        return false;
-      }
-
-      if (!formData.delivery_address.trim() || formData.delivery_address.trim().length < 10) {
-        Alert.alert('Error', 'Please enter a valid delivery address (minimum 10 characters)');
-        return false;
-      }
-
-      if (!formData.delivery_city.trim()) {
-        Alert.alert('Error', 'Please enter delivery city');
-        return false;
-      }
-
-      if (!formData.delivery_pincode.trim() || !/^\d{6}$/.test(formData.delivery_pincode)) {
-        Alert.alert('Error', 'Please enter a valid 6-digit delivery pincode');
-        return false;
-      }
-
-      if (!formData.phone.trim() || !/^\+?[\d\s-]{10,}$/.test(formData.phone)) {
-        Alert.alert('Error', 'Please enter a valid phone number');
-        return false;
-      }
-
-      if (!formData.description.trim() || formData.description.trim().length < 10) {
-        Alert.alert('Error', 'Please describe what needs to be delivered (minimum 10 characters)');
-        return false;
-      }
-
-      if (formData.estimated_distance && parseFloat(formData.estimated_distance) <= 0) {
-        Alert.alert('Error', 'Please enter a valid distance');
-        return false;
-      }
-
-      return true;
+    const handleCreateRequest = () => {
+      setModalVisible(false);
+      router.push('/create-porter-request');
     };
 
-    const handleSubmit = async () => {
-      if (!token) {
-        Alert.alert(
-          'Login Required',
-          'Please login to request porter service',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Login', onPress: () => router.push('/auth/login') }
-          ]
-        );
-        return;
-      }
-
-      if (!validateForm()) {
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const requestData = {
-          pickup_address: {
-            address: formData.pickup_address.trim(),
-            city: formData.pickup_city.trim(),
-            pincode: formData.pickup_pincode.trim(),
-          },
-          delivery_address: {
-            address: formData.delivery_address.trim(),
-            city: formData.delivery_city.trim(),
-            pincode: formData.delivery_pincode.trim(),
-          },
-          phone: formData.phone.trim(),
-          description: formData.description.trim(),
-          estimated_distance: formData.estimated_distance ? parseFloat(formData.estimated_distance) : null,
-          package_size: formData.package_size,
-          urgent: formData.urgent,
-        };
-
-        const response = await fetch(`${API_BASE_URL}/support/porter-requests`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(requestData),
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          Alert.alert(
-            'Porter Request Submitted! 🚚',
-            'Your delivery request has been received. A delivery partner will contact you shortly at the provided phone number.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  setFormData({
-                    pickup_address: '',
-                    pickup_city: '',
-                    pickup_pincode: '',
-                    delivery_address: '',
-                    delivery_city: '',
-                    delivery_pincode: '',
-                    phone: '',
-                    description: '',
-                    estimated_distance: '',
-                    package_size: 'small',
-                    urgent: false,
-                  });
-                  setShowModal(false);
-                  onRequestSubmitted?.();
-                }
-              }
-            ]
-          );
-        } else {
-          Alert.alert('Error', data.detail || 'Failed to submit porter request');
-        }
-      } catch (error) {
-        console.error('Error submitting porter request:', error);
-        Alert.alert('Error', 'Network error. Please try again.');
-      } finally {
-        setLoading(false);
-      }
+    const handleViewRequests = () => {
+      setModalVisible(false);
+      router.push('/porter-requests');
     };
 
     return (
-      <View style={styles.container}>
-        <View style={styles.requestSection}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="bicycle-outline" size={48} color="#007AFF" />
+      <>
+        {/* Porter Service Card */}
+        <View style={styles.porterCard}>
+          <View style={styles.porterHeader}>
+            <View style={styles.porterIconContainer}>
+              <Ionicons name="bicycle" size={32} color="#007AFF" />
+            </View>
+            <View style={styles.porterTextContainer}>
+              <Text style={styles.porterTitle}>Porter Service</Text>
+              <Text style={styles.porterSubtitle}>
+                Quick delivery from pickup to drop location
+              </Text>
+            </View>
           </View>
-          <Text style={styles.title}>Need Porter Service?</Text>
-          <Text style={styles.subtitle}>
-            Quick delivery from one location to another
-          </Text>
-          
+
+          <View style={styles.porterFeatures}>
+            <View style={styles.featureItem}>
+              <Ionicons name="flash" size={16} color="#34C759" />
+              <Text style={styles.featureText}>Same-day delivery</Text>
+            </View>
+            <View style={styles.featureItem}>
+              <Ionicons name="shield-checkmark" size={16} color="#34C759" />
+              <Text style={styles.featureText}>Secure handling</Text>
+            </View>
+            <View style={styles.featureItem}>
+              <Ionicons name="location" size={16} color="#34C759" />
+              <Text style={styles.featureText}>Real-time tracking</Text>
+            </View>
+          </View>
+
           <TouchableOpacity
             style={styles.requestButton}
-            onPress={() => setShowModal(true)}
+            onPress={() => setModalVisible(true)}
+            activeOpacity={0.8}
           >
-            <Ionicons name="bicycle" size={20} color="#fff" />
-            <Text style={styles.requestButtonText}>Request Porter</Text>
+            <Ionicons name="add-circle" size={20} color="#fff" />
+            <Text style={styles.requestButtonText}>Request Porter Service</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Porter Request Modal */}
+        {/* Porter Options Modal */}
         <Modal
-          visible={showModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowModal(false)}
+          visible={modalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setModalVisible(false)}
         >
-          <KeyboardAvoidingView
-            style={styles.modalContainer}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setShowModal(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>Request Porter Service</Text>
-              <View style={styles.modalPlaceholder} />
-            </View>
-
-            <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalSubtitle}>
-                Need something delivered? Our porter service can help you deliver packages from one location to another.
-              </Text>
-
-              {/* Pickup Address Section */}
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>📍 Pickup Location</Text>
-                
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Pickup Address *</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.pickup_address}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, pickup_address: text }))}
-                    placeholder="Enter full pickup address"
-                    multiline
-                    numberOfLines={2}
-                    maxLength={300}
-                  />
-                </View>
-
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.inputLabel}>City *</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={formData.pickup_city}
-                      onChangeText={(text) => setFormData(prev => ({ ...prev, pickup_city: text }))}
-                      placeholder="City"
-                      maxLength={50}
-                    />
-                  </View>
-
-                  <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                    <Text style={styles.inputLabel}>Pincode *</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={formData.pickup_pincode}
-                      onChangeText={(text) => setFormData(prev => ({ ...prev, pickup_pincode: text }))}
-                      placeholder="000000"
-                      keyboardType="number-pad"
-                      maxLength={6}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* Delivery Address Section */}
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>🎯 Delivery Location</Text>
-                
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Delivery Address *</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.delivery_address}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, delivery_address: text }))}
-                    placeholder="Enter full delivery address"
-                    multiline
-                    numberOfLines={2}
-                    maxLength={300}
-                  />
-                </View>
-
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.inputLabel}>City *</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={formData.delivery_city}
-                      onChangeText={(text) => setFormData(prev => ({ ...prev, delivery_city: text }))}
-                      placeholder="City"
-                      maxLength={50}
-                    />
-                  </View>
-
-                  <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                    <Text style={styles.inputLabel}>Pincode *</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={formData.delivery_pincode}
-                      onChangeText={(text) => setFormData(prev => ({ ...prev, delivery_pincode: text }))}
-                      placeholder="000000"
-                      keyboardType="number-pad"
-                      maxLength={6}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* Contact & Package Details */}
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>📦 Package Details</Text>
-                
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Contact Phone *</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.phone}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
-                    placeholder="+91 9876543210"
-                    keyboardType="phone-pad"
-                    maxLength={15}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Package Description *</Text>
-                  <TextInput
-                    style={styles.textArea}
-                    value={formData.description}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
-                    placeholder="What needs to be delivered? (e.g., Documents, Small package, Food items)"
-                    multiline
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                    maxLength={500}
-                  />
-                  <Text style={styles.charCount}>{formData.description.length}/500</Text>
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Estimated Distance (km)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.estimated_distance}
-                    onChangeText={(text) => setFormData(prev => ({ ...prev, estimated_distance: text }))}
-                    placeholder="Optional"
-                    keyboardType="decimal-pad"
-                    maxLength={5}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Package Size *</Text>
-                  <View style={styles.packageSizeContainer}>
-                    {['small', 'medium', 'large'].map((size) => (
-                      <TouchableOpacity
-                        key={size}
-                        style={[
-                          styles.sizeButton,
-                          formData.package_size === size && styles.sizeButtonActive
-                        ]}
-                        onPress={() => setFormData(prev => ({ ...prev, package_size: size }))}
-                      >
-                        <Text style={[
-                          styles.sizeButtonText,
-                          formData.package_size === size && styles.sizeButtonTextActive
-                        ]}>
-                          {size.charAt(0).toUpperCase() + size.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Porter Service</Text>
                 <TouchableOpacity
-                  style={styles.urgentCheckbox}
-                  onPress={() => setFormData(prev => ({ ...prev, urgent: !prev.urgent }))}
+                  onPress={() => setModalVisible(false)}
+                  style={styles.closeButton}
                 >
-                  <Ionicons 
-                    name={formData.urgent ? "checkbox" : "square-outline"} 
-                    size={24} 
-                    color={formData.urgent ? "#007AFF" : "#999"} 
-                  />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.urgentLabel}>Urgent Delivery</Text>
-                    <Text style={styles.urgentSubtext}>Priority delivery with faster response time</Text>
-                  </View>
+                  <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.infoBox}>
-                <Ionicons name="information-circle-outline" size={20} color="#007AFF" />
-                <Text style={styles.infoText}>
-                  Our delivery partner will contact you at the provided phone number to confirm the delivery details and provide an estimated cost.
-                </Text>
-              </View>
+              <View style={styles.modalContent}>
+                {/* Create New Request */}
+                <TouchableOpacity
+                  style={styles.optionCard}
+                  onPress={handleCreateRequest}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.optionIconContainer}>
+                    <Ionicons name="add-circle" size={40} color="#007AFF" />
+                  </View>
+                  <View style={styles.optionContent}>
+                    <Text style={styles.optionTitle}>Create New Request</Text>
+                    <Text style={styles.optionDescription}>
+                      Request delivery from pickup to drop location
+                    </Text>
+                    <View style={styles.optionSteps}>
+                      <View style={styles.stepItem}>
+                        <View style={styles.stepBullet} />
+                        <Text style={styles.stepText}>Select addresses</Text>
+                      </View>
+                      <View style={styles.stepItem}>
+                        <View style={styles.stepBullet} />
+                        <Text style={styles.stepText}>Enter package details</Text>
+                      </View>
+                      <View style={styles.stepItem}>
+                        <View style={styles.stepBullet} />
+                        <Text style={styles.stepText}>Get cost estimate</Text>
+                      </View>
+                      <View style={styles.stepItem}>
+                        <View style={styles.stepBullet} />
+                        <Text style={styles.stepText}>Pay and track</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={24} color="#ccc" />
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-                onPress={handleSubmit}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                    <Text style={styles.submitButtonText}>Submit Porter Request</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
-          </KeyboardAvoidingView>
+                {/* View My Requests */}
+                <TouchableOpacity
+                  style={styles.optionCard}
+                  onPress={handleViewRequests}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.optionIconContainer, { backgroundColor: '#E8F5E9' }]}>
+                    <Ionicons name="list" size={40} color="#34C759" />
+                  </View>
+                  <View style={styles.optionContent}>
+                    <Text style={styles.optionTitle}>My Requests</Text>
+                    <Text style={styles.optionDescription}>
+                      View and manage your porter requests
+                    </Text>
+                    <View style={styles.optionFeatures}>
+                      <View style={styles.featureTag}>
+                        <Ionicons name="time" size={14} color="#666" />
+                        <Text style={styles.featureTagText}>Track status</Text>
+                      </View>
+                      <View style={styles.featureTag}>
+                        <Ionicons name="cash" size={14} color="#666" />
+                        <Text style={styles.featureTagText}>View costs</Text>
+                      </View>
+                      <View style={styles.featureTag}>
+                        <Ionicons name="card" size={14} color="#666" />
+                        <Text style={styles.featureTagText}>Make payment</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={24} color="#ccc" />
+                </TouchableOpacity>
+
+                {/* Info Section */}
+                <View style={styles.infoSection}>
+                  <Ionicons name="information-circle" size={20} color="#007AFF" />
+                  <Text style={styles.infoText}>
+                    You'll receive notifications for cost estimates and delivery updates
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
         </Modal>
-      </View>
+      </>
     );
   }
 );
 
-PorterRequestSection.displayName = 'PorterRequestSection';
-
 const styles = StyleSheet.create({
-  container: {
-    marginTop: 20,
-    marginHorizontal: 16,
-    marginBottom: 20,
-  },
-  requestSection: {
+  porterCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    padding: 20,
+    marginVertical: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E3F2FD',
   },
-  iconContainer: {
+  porterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
+  porterIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  subtitle: {
-    fontSize: 16,
+  porterTextContainer: {
+    flex: 1,
+  },
+  porterTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  porterSubtitle: {
+    fontSize: 14,
     color: '#666',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 20,
+    lineHeight: 18,
+  },
+  porterFeatures: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+    gap: 12,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  featureText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
   },
   requestButton: {
     backgroundColor: '#007AFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
   },
   requestButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
+  },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalContainer: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: width - 32,
+    maxHeight: '80%',
+    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    alignItems: 'center',
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  modalCancelText: {
-    fontSize: 16,
-    color: '#007AFF',
+    borderBottomColor: '#f0f0f0',
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: '#333',
   },
-  modalPlaceholder: {
-    width: 50,
+  closeButton: {
+    padding: 4,
   },
   modalContent: {
-    flex: 1,
-    padding: 16,
+    padding: 20,
   },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 24,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  sectionContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
-  sectionTitle: {
-    fontSize: 16,
+  optionIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  optionContent: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: 18,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 16,
+    marginBottom: 4,
   },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
+  optionDescription: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    color: '#666',
+    marginBottom: 12,
+    lineHeight: 20,
   },
-  input: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
+  optionSteps: {
+    gap: 6,
   },
-  row: {
+  stepItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  textArea: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
-    minHeight: 80,
-  },
-  charCount: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'right',
-    marginTop: 4,
-  },
-  packageSizeContainer: {
-    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  sizeButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f8f9fa',
-    alignItems: 'center',
-  },
-  sizeButtonActive: {
+  stepBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
   },
-  sizeButtonText: {
-    fontSize: 14,
+  stepText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  optionFeatures: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  featureTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  featureTagText: {
+    fontSize: 12,
     color: '#666',
     fontWeight: '500',
   },
-  sizeButtonTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  urgentCheckbox: {
+  infoSection: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginTop: 8,
-  },
-  urgentLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  urgentSubtext: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  infoBox: {
-    flexDirection: 'row',
+    alignItems: 'flex-start',
     backgroundColor: '#E3F2FD',
     padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#90CAF9',
+    borderRadius: 12,
+    gap: 8,
+    marginTop: 8,
   },
   infoText: {
-    fontSize: 13,
-    color: '#1565C0',
-    marginLeft: 8,
     flex: 1,
+    fontSize: 13,
+    color: '#0277BD',
     lineHeight: 18,
-  },
-  submitButton: {
-    backgroundColor: '#007AFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
   },
 });

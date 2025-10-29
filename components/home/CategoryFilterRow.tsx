@@ -1,16 +1,17 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Category } from '../../types/home.types';
 import { IMAGE_BASE_URL } from '../../config/apiConfig';
 import { styles } from '../../styles/home.styles';
-import { RequestProductRef } from '../RequestProductSection';
+import { RequestSectionRef } from '../RequestSection';
 
 interface CategoryFilterRowProps {
   categories: Category[];
   selectedCategory: string | null;
   handleCategoryPress: (categoryId: string | null) => void;
-  requestFormRef: React.RefObject<RequestProductRef | null>;
+  requestFormRef: React.RefObject<RequestSectionRef | null>;
 }
 
 const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
@@ -36,6 +37,7 @@ const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
   return (
     <View style={styles.categoryFilterRow}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8 }}>
+        {/* All Categories */}
         <TouchableOpacity 
           key="category-all"
           onPress={() => handleCategoryPress(null)} 
@@ -47,6 +49,7 @@ const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
           <Text style={[styles.categoryUberLabel, selectedCategory === null && styles.categoryUberLabelSelected]}>All</Text>
         </TouchableOpacity>
         
+        {/* Category Items */}
         {categories.map((cat, index) => {
           const iconUrl = getCategoryIconUrl(cat);
           const categoryKey = cat.id || `category-${cat.name}-${index}`;
@@ -73,15 +76,28 @@ const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
           );
         })}
         
+        {/* Request Product Button */}
         <TouchableOpacity 
           key="request-product"
-          onPress={() => requestFormRef.current?.openForm()}
+          onPress={() => requestFormRef.current?.openForm('product')}
           style={{ alignItems: 'center', marginHorizontal: 8 }}
         >
           <View style={styles.requestProductIconContainer}>
             <Ionicons name="add-circle-outline" size={24} color="#FF6B35" />
           </View>
-          <Text style={styles.requestProductLabel}>Request Product</Text>
+          <Text style={styles.requestProductLabel}>Request{'\n'}Product</Text>
+        </TouchableOpacity>
+
+        {/* ✅ NEW: Porter Request Button */}
+        <TouchableOpacity 
+          key="request-porter"
+          onPress={() => router.push('/create-porter-request')}
+          style={{ alignItems: 'center', marginHorizontal: 8 }}
+        >
+          <View style={styles.porterRequestIconContainer}>
+            <Ionicons name="bicycle-outline" size={24} color="#34C759" />
+          </View>
+          <Text style={styles.porterRequestLabel}>Porter{'\n'}Service</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

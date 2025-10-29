@@ -3,6 +3,7 @@ import { Stack, router, useSegments, useRootNavigationState } from 'expo-router'
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { CartProvider } from '../contexts/CartContext';
 import { OrderTrackingProvider } from '../contexts/OrderTrackingContext';
+import { PorterRequestProvider } from '../contexts/PorterRequestContext';
 import { View, ActivityIndicator, Text } from 'react-native';
 
 function RootLayoutNav() {
@@ -80,7 +81,9 @@ export default function RootLayout() {
     <AuthProvider>
       <CartProvider>
         <OrderTrackingProvider>
-          <RootLayoutNav />
+          <PorterRequestProvider>
+            <RootLayoutNav />
+          </PorterRequestProvider>
         </OrderTrackingProvider>
       </CartProvider>
     </AuthProvider>

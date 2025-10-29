@@ -1,4 +1,4 @@
-// app/porter-requests.tsx
+// app/porter-requests.tsx - UPDATED WITH PAYMENT
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config/apiConfig';
+import { authenticatedFetch } from '../utils/authenticatedFetch';
 
 interface PorterRequest {
   _id: string;
@@ -33,13 +34,20 @@ interface PorterRequest {
   };
   phone: string;
   description: string;
-  estimated_distance: number | null;
-  package_size: string;
+  dimensions?: {
+    length: number;
+    breadth: number;
+    height: number;
+    unit: string;
+  };
+  weight_category?: string;
   urgent: boolean;
   status: string;
   assigned_partner_name: string | null;
   estimated_cost: number | null;
   actual_cost: number | null;
+  payment_status?: string;
+  can_pay?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +59,7 @@ export default function PorterRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<PorterRequest | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [initiatingPayment, setInitiatingPayment] = useState(false);
 
   useEffect(() => {
     fetchPorterRequests();
@@ -60,17 +69,13 @@ export default function PorterRequestsScreen() {
     if (!token) return;
     
     try {
-      const response = await fetch(`${API_BASE_URL}/porter/porter-requests/my-requests`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/porter/porter-requests/my-requests`
+      );
 
       if (response.ok) {
         const data = await response.json();
         setRequests(data.requests || []);
-      } else {
-        console.error('Failed to fetch porter requests');
       }
     } catch (error) {
       console.error('Error fetching porter requests:', error);
@@ -84,6 +89,44 @@ export default function PorterRequestsScreen() {
     setRefreshing(true);
     await fetchPorterRequests();
     setRefreshing(false);
+  };
+
+  const handlePayment = async (requestId: string) => {
+    setInitiatingPayment(true);
+    
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/porter/porter-requests/${requestId}/pay`,
+        {
+          method: 'POST',
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Close modal
+        setModalVisible(false);
+        
+        // Navigate to payment WebView
+        router.push({
+          pathname: '/payment-webview',
+          params: {
+            paymentUrl: result.payment_url,
+            orderId: result.request_id,
+            merchantTransactionId: result.merchant_transaction_id,
+          }
+        });
+      } else {
+        const errorData = await response.json();
+        Alert.alert('Error', errorData.detail || 'Failed to initiate payment');
+      }
+    } catch (error) {
+      console.error('Error initiating payment:', error);
+      Alert.alert('Error', 'Failed to initiate payment. Please try again.');
+    } finally {
+      setInitiatingPayment(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -108,12 +151,12 @@ export default function PorterRequestsScreen() {
     }
   };
 
-  const getPackageSizeIcon = (size: string) => {
-    switch (size) {
-      case 'small': return '📦';
-      case 'medium': return '📦📦';
-      case 'large': return '📦📦📦';
-      default: return '📦';
+  const getPaymentStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return '#FF9500';
+      case 'completed': return '#34C759';
+      case 'failed': return '#FF3B30';
+      default: return '#8E8E93';
     }
   };
 
@@ -167,9 +210,9 @@ export default function PorterRequestsScreen() {
           </View>
           
           <View style={styles.packageInfo}>
-            <Text style={styles.packageSize}>
-              {getPackageSizeIcon(item.package_size)} {item.package_size}
-            </Text>
+            {item.weight_category && (
+              <Text style={styles.packageSize}>⚖️ {item.weight_category}</Text>
+            )}
             {item.urgent && (
               <View style={styles.urgentBadge}>
                 <Ionicons name="flash" size={12} color="#fff" />
@@ -193,17 +236,26 @@ export default function PorterRequestsScreen() {
         {item.description}
       </Text>
 
-      {item.assigned_partner_name && (
-        <View style={styles.partnerInfo}>
-          <Ionicons name="person-circle-outline" size={16} color="#007AFF" />
-          <Text style={styles.partnerText}>Partner: {item.assigned_partner_name}</Text>
-        </View>
-      )}
-
       {item.estimated_cost && (
-        <View style={styles.costInfo}>
-          <Ionicons name="cash-outline" size={16} color="#34C759" />
-          <Text style={styles.costText}>Estimated: ₹{item.estimated_cost.toFixed(2)}</Text>
+        <View style={styles.costRow}>
+          <View style={styles.costInfo}>
+            <Ionicons name="cash-outline" size={16} color="#34C759" />
+            <Text style={styles.costText}>₹{item.estimated_cost.toFixed(2)}</Text>
+          </View>
+          
+          {item.can_pay && item.payment_status === 'pending' && (
+            <View style={styles.paymentPendingBadge}>
+              <Ionicons name="alert-circle" size={14} color="#FF9500" />
+              <Text style={styles.paymentPendingText}>Payment Pending</Text>
+            </View>
+          )}
+          
+          {item.payment_status === 'completed' && (
+            <View style={styles.paymentCompletedBadge}>
+              <Ionicons name="checkmark-circle" size={14} color="#34C759" />
+              <Text style={styles.paymentCompletedText}>Paid</Text>
+            </View>
+          )}
         </View>
       )}
     </TouchableOpacity>
@@ -281,70 +333,73 @@ export default function PorterRequestsScreen() {
                 <Text style={styles.detailLabel}>Description:</Text>
                 <Text style={styles.detailValue}>{selectedRequest.description}</Text>
               </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Package Size:</Text>
-                <Text style={styles.detailValue}>
-                  {getPackageSizeIcon(selectedRequest.package_size)} {selectedRequest.package_size}
-                </Text>
-              </View>
-              {selectedRequest.estimated_distance && (
+              {selectedRequest.dimensions && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Distance:</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.estimated_distance} km</Text>
+                  <Text style={styles.detailLabel}>Dimensions:</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedRequest.dimensions.length} × {selectedRequest.dimensions.breadth} × {selectedRequest.dimensions.height} {selectedRequest.dimensions.unit}
+                  </Text>
+                </View>
+              )}
+              {selectedRequest.weight_category && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Weight:</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.weight_category}</Text>
                 </View>
               )}
             </View>
 
-            {/* Contact Information */}
-            <View style={styles.detailSection}>
-              <Text style={styles.sectionTitle}>Contact Information</Text>
-              <View style={styles.contactRow}>
-                <Ionicons name="call" size={18} color="#007AFF" />
-                <Text style={styles.contactText}>{selectedRequest.phone}</Text>
-                <TouchableOpacity
-                  style={styles.callButton}
-                  onPress={() => {
-                    Alert.alert(
-                      'Call Partner',
-                      `Do you want to call ${selectedRequest.phone}?`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { 
-                          text: 'Call', 
-                          onPress: () => {
-                            const Linking = require('react-native').Linking;
-                            Linking.openURL(`tel:${selectedRequest.phone}`);
-                          }
-                        }
-                      ]
-                    );
-                  }}
-                >
-                  <Ionicons name="call" size={16} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Partner & Cost */}
-            {(selectedRequest.assigned_partner_name || selectedRequest.estimated_cost) && (
+            {/* Cost & Payment */}
+            {selectedRequest.estimated_cost && (
               <View style={styles.detailSection}>
-                <Text style={styles.sectionTitle}>Delivery Details</Text>
-                {selectedRequest.assigned_partner_name && (
+                <Text style={styles.sectionTitle}>Cost & Payment</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Estimated Cost:</Text>
+                  <Text style={styles.detailValueHighlight}>₹{selectedRequest.estimated_cost.toFixed(2)}</Text>
+                </View>
+                
+                {selectedRequest.payment_status && (
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Assigned Partner:</Text>
-                    <Text style={styles.detailValue}>{selectedRequest.assigned_partner_name}</Text>
+                    <Text style={styles.detailLabel}>Payment Status:</Text>
+                    <View style={[
+                      styles.inlineStatusBadge,
+                      { backgroundColor: getPaymentStatusColor(selectedRequest.payment_status) }
+                    ]}>
+                      <Text style={styles.inlineStatusText}>
+                        {selectedRequest.payment_status === 'pending' ? 'Pending' :
+                         selectedRequest.payment_status === 'completed' ? 'Completed' : 
+                         'Not Required'}
+                      </Text>
+                    </View>
                   </View>
                 )}
-                {selectedRequest.estimated_cost && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Estimated Cost:</Text>
-                    <Text style={styles.detailValueHighlight}>₹{selectedRequest.estimated_cost.toFixed(2)}</Text>
-                  </View>
+                
+                {selectedRequest.can_pay && selectedRequest.payment_status === 'pending' && (
+                  <TouchableOpacity
+                    style={styles.payButton}
+                    onPress={() => handlePayment(selectedRequest.id)}
+                    disabled={initiatingPayment}
+                  >
+                    {initiatingPayment ? (
+                      <>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={styles.payButtonText}>Processing...</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="card" size={20} color="#fff" />
+                        <Text style={styles.payButtonText}>
+                          Pay ₹{selectedRequest.estimated_cost.toFixed(2)}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 )}
-                {selectedRequest.actual_cost && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Actual Cost:</Text>
-                    <Text style={styles.detailValueHighlight}>₹{selectedRequest.actual_cost.toFixed(2)}</Text>
+                
+                {selectedRequest.payment_status === 'completed' && (
+                  <View style={styles.paymentCompletedCard}>
+                    <Ionicons name="checkmark-circle" size={24} color="#34C759" />
+                    <Text style={styles.paymentCompletedMessage}>Payment completed successfully</Text>
                   </View>
                 )}
               </View>
@@ -381,7 +436,6 @@ export default function PorterRequestsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
@@ -390,11 +444,10 @@ export default function PorterRequestsScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      {/* Summary Cards */}
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryNumber}>{requests.length}</Text>
-          <Text style={styles.summaryLabel}>Total Requests</Text>
+          <Text style={styles.summaryLabel}>Total</Text>
         </View>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryNumber}>
@@ -404,19 +457,18 @@ export default function PorterRequestsScreen() {
         </View>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryNumber}>
-            {requests.filter(r => r.status === 'delivered').length}
+            {requests.filter(r => r.payment_status === 'pending').length}
           </Text>
-          <Text style={styles.summaryLabel}>Delivered</Text>
+          <Text style={styles.summaryLabel}>To Pay</Text>
         </View>
       </View>
 
-      {/* Requests List */}
       {requests.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="bicycle-outline" size={64} color="#ccc" />
           <Text style={styles.emptyTitle}>No Porter Requests</Text>
           <Text style={styles.emptySubtitle}>
-            You haven't requested any porter services yet. Request from the home screen to get started.
+            You haven't requested any porter services yet.
           </Text>
           <TouchableOpacity 
             style={styles.homeButton}
@@ -451,10 +503,7 @@ export default function PorterRequestsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -465,22 +514,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  placeholder: {
-    width: 40,
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-  },
+  backButton: { padding: 8 },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
+  placeholder: { width: 40 },
+  summaryContainer: { flexDirection: 'row', padding: 16, gap: 12 },
   summaryCard: {
     flex: 1,
     backgroundColor: '#fff',
@@ -493,47 +530,13 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  summaryNumber: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
+  summaryNumber: { fontSize: 28, fontWeight: 'bold', color: '#007AFF', marginBottom: 4 },
+  summaryLabel: { fontSize: 12, color: '#666', textAlign: 'center' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: '#666', marginTop: 16 },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 20, fontWeight: '600', color: '#333', marginTop: 16, marginBottom: 8 },
+  emptySubtitle: { fontSize: 16, color: '#666', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
   homeButton: {
     backgroundColor: '#007AFF',
     flexDirection: 'row',
@@ -543,17 +546,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 8,
   },
-  homeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  requestsList: {
-    flex: 1,
-  },
-  requestsListContent: {
-    padding: 16,
-  },
+  homeButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  requestsList: { flex: 1 },
+  requestsListContent: { padding: 16 },
   requestCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -571,40 +566,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  requestInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  routeInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  locationText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginLeft: 4,
-    flex: 1,
-  },
-  arrowIcon: {
-    marginHorizontal: 8,
-  },
-  packageInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  packageSize: {
-    fontSize: 13,
-    color: '#666',
-    marginRight: 8,
-  },
+  requestInfo: { flex: 1, marginRight: 12 },
+  routeInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  locationRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  locationText: { fontSize: 14, fontWeight: '500', color: '#333', marginLeft: 4, flex: 1 },
+  arrowIcon: { marginHorizontal: 8 },
+  packageInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  packageSize: { fontSize: 13, color: '#666', marginRight: 8 },
   urgentBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -614,66 +582,46 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 4,
   },
-  urgentText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  requestDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  requestStatusContainer: {
-    alignItems: 'flex-end',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 4,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  chevronIcon: {
-    marginTop: 4,
-  },
-  requestDescription: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  partnerInfo: {
+  urgentText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  requestDate: { fontSize: 12, color: '#999' },
+  requestStatusContainer: { alignItems: 'flex-end' },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginBottom: 4 },
+  statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  chevronIcon: { marginTop: 4 },
+  requestDescription: { fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 12 },
+  costRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
-    marginBottom: 4,
   },
-  partnerText: {
-    fontSize: 13,
-    color: '#007AFF',
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  costInfo: {
+  costInfo: { flexDirection: 'row', alignItems: 'center' },
+  costText: { fontSize: 16, color: '#34C759', marginLeft: 6, fontWeight: '700' },
+  paymentPendingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
   },
-  costText: {
-    fontSize: 13,
-    color: '#34C759',
-    marginLeft: 6,
-    fontWeight: '600',
+  paymentPendingText: { fontSize: 11, color: '#FF9500', fontWeight: '600' },
+  paymentCompletedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  paymentCompletedText: { fontSize: 11, color: '#34C759', fontWeight: '600' },
+  
+  // Modal styles
+  modalContainer: { flex: 1, backgroundColor: '#f8f9fa' },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -684,17 +632,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  closeButton: {
-    padding: 4,
-  },
-  modalContent: {
-    flex: 1,
-  },
+  modalTitle: { fontSize: 20, fontWeight: '600', color: '#333' },
+  closeButton: { padding: 4 },
+  modalContent: { flex: 1 },
   detailSection: {
     backgroundColor: '#fff',
     padding: 16,
@@ -707,21 +647,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  statusHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  largeStatusBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  largeStatusText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  statusHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  largeStatusBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  largeStatusText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   urgentAlert: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -732,77 +660,42 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#FF9500',
   },
-  urgentAlertText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#E65100',
-    marginLeft: 8,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  addressText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 4,
-  },
+  urgentAlertText: { fontSize: 14, fontWeight: '600', color: '#E65100', marginLeft: 8 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 12 },
+  addressText: { fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 4 },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f8f8f8',
   },
-  detailLabel: {
-    fontSize: 14,
-    color: '#666',
-    flex: 1,
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    flex: 1,
-    textAlign: 'right',
-  },
-  detailValueHighlight: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#34C759',
-    flex: 1,
-    textAlign: 'right',
-  },
-  contactRow: {
+  detailLabel: { fontSize: 14, color: '#666', flex: 1 },
+  detailValue: { fontSize: 14, fontWeight: '500', color: '#333', flex: 1, textAlign: 'right' },
+  detailValueHighlight: { fontSize: 16, fontWeight: '700', color: '#34C759', flex: 1, textAlign: 'right' },
+  inlineStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
+  inlineStatusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  payButton: {
+    backgroundColor: '#007AFF',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 12,
+    gap: 8,
+  },
+  payButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  paymentCompletedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
     padding: 12,
     borderRadius: 8,
+    marginTop: 12,
+    gap: 8,
   },
-  contactText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    flex: 1,
-    marginLeft: 8,
-  },
-  callButton: {
-    backgroundColor: '#34C759',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  paymentCompletedMessage: { fontSize: 14, color: '#34C759', fontWeight: '500' },
 });

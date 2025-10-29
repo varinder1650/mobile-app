@@ -456,4 +456,25 @@ export const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FF6B35',
   },
+  porterRequestIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E8F5E9', // Light green background
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#34C759',
+    borderStyle: 'dashed',
+  },
+  
+  // Porter Request Label
+  porterRequestLabel: {
+    fontSize: 11,
+    color: '#34C759',
+    marginTop: 6,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 13,
+  },
 });

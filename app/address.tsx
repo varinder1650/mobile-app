@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { API_ENDPOINTS } from '../config/apiConfig';
 import { authenticatedFetch } from '../utils/authenticatedFetch';
 import { openMapsWithAddress } from '../utils/mapUtils';
+import { usePorterRequest } from '../contexts/PorterRequestContext';
 
 interface SavedAddress {
   _id: string;
@@ -48,7 +49,12 @@ interface ManualAddressForm {
 export default function AddressScreen() {
   const { token, user } = useAuth();
   const params = useLocalSearchParams();
-  const isFromCheckout = params.from === 'checkout';
+  const { setPickupAddress, setDeliveryAddress } = usePorterRequest();
+  // ✅ Get navigation context
+  const fromPage = params.from as string; // 'checkout' or 'porter-request'
+  const addressType = params.addressType as string; // 'pickup' or 'delivery' (for porter)
+  const isFromCheckout = fromPage === 'checkout';
+  const isFromPorter = fromPage === 'porter-request';
   
   // Location states
   const [latitude, setLatitude] = useState<number | null>(null);
@@ -71,7 +77,7 @@ export default function AddressScreen() {
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
   const [loadingSavedAddresses, setLoadingSavedAddresses] = useState(false);
-  const [settingDefault, setSettingDefault] = useState<string | null>(null); // ✅ Track which address is being set as default
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
   
   // General states
   const [loading, setLoading] = useState(false);
@@ -96,7 +102,6 @@ export default function AddressScreen() {
     
     setLocationLoading(true);
     try {
-      // Request permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
       
       if (status !== 'granted') {
@@ -105,7 +110,6 @@ export default function AddressScreen() {
         return;
       }
 
-      // Get current position
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
@@ -113,11 +117,9 @@ export default function AddressScreen() {
       const { latitude: lat, longitude: lng } = location.coords;
       console.log('📍 Location received:', lat, lng);
       
-      // Set coordinates
       setLatitude(lat);
       setLongitude(lng);
       
-      // Check if in India
       const isInIndia = lat >= 8.4 && lat <= 37.6 && lng >= 68.7 && lng <= 97.25;
       
       if (!isInIndia) {
@@ -128,9 +130,6 @@ export default function AddressScreen() {
         setLocationLoading(false);
         return;
       }
-
-      // Reverse geocode to get address
-      // await getAddressFromCoordinates(lat, lng);
       
     } catch (error) {
       console.error('📍 Location error:', error);
@@ -142,68 +141,6 @@ export default function AddressScreen() {
       setLocationLoading(false);
     }
   }, []);
-
-  // Reverse geocode coordinates to address
-  const getAddressFromCoordinates = async (lat: number, lng: number) => {
-    try {
-      console.log('🔄 Reverse geocoding:', lat, lng);
-      
-      const response = await fetch(API_ENDPOINTS.REVERSE_GEOCODE, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ latitude: lat, longitude: lng }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Reverse geocode result:', result);
-        
-        if (result && result.formatted_address) {
-          setLocationAddress(result.formatted_address);
-          
-          // Parse address components
-          if (result.address_components) {
-            const components = result.address_components;
-            let street = '', city = '', state = '', pincode = '';
-            
-            for (const component of components) {
-              const types = component.types || [];
-              
-              if (types.includes('street_number') || types.includes('route')) {
-                street += component.long_name + ' ';
-              } else if (types.includes('sublocality') || types.includes('locality')) {
-                city = component.long_name;
-              } else if (types.includes('administrative_area_level_1')) {
-                state = component.long_name;
-              } else if (types.includes('postal_code')) {
-                pincode = component.long_name;
-              }
-            }
-            
-            // Update form with detected address
-            setManualAddress(prev => ({
-              ...prev,
-              street: street.trim() || result.formatted_address,
-              city: city || '',
-              state: state || '',
-              pincode: pincode || '',
-            }));
-            
-            Alert.alert('Location Detected', 'Please review and complete the address details below.');
-          }
-        }
-      } else {
-        console.error('❌ Reverse geocode failed:', response.status);
-        Alert.alert('Notice', 'Could not get detailed address. Please fill in the details manually.');
-      }
-    } catch (error) {
-      console.error('❌ Reverse geocoding error:', error);
-      Alert.alert('Notice', 'Could not get address details. Please enter manually.');
-    }
-  };
 
   // Fetch saved addresses
   const fetchSavedAddresses = useCallback(async () => {
@@ -229,7 +166,7 @@ export default function AddressScreen() {
     }
   }, [token, selectedAddress]);
 
-  // Save new address with coordinates
+  // Save new address
   const saveManualAddress = async () => {
     if (!manualAddress.street.trim() || !manualAddress.city.trim() || !manualAddress.pincode.trim() || !manualAddress.mobile_number.trim()) {
       Alert.alert('Error', 'Please fill in all required fields (Street, City, Pincode, and Mobile Number)');
@@ -259,12 +196,6 @@ export default function AddressScreen() {
         longitude: longitude || 0,
       };
 
-      console.log('💾 Saving address:', {
-        street: addressData.street,
-        city: addressData.city,
-        hasCoordinates: !!(latitude && longitude),
-      });
-
       const response = await authenticatedFetch(API_ENDPOINTS.USER_ADDRESS, {
         method: 'POST',
         headers: {
@@ -274,25 +205,10 @@ export default function AddressScreen() {
       });
 
       if (response.ok) {
-        const savedAddress = await response.json();
-        
-        if (savedAddress.latitude && savedAddress.longitude && (!latitude || !longitude)) {
-          Alert.alert(
-            'Success', 
-            'Address saved successfully with location coordinates! You can now get directions to this address.'
-          );
-        } else if (!savedAddress.latitude || !savedAddress.longitude) {
-          Alert.alert(
-            'Partially Saved',
-            'Address saved, but we couldn\'t find exact coordinates. You can still use this address for delivery.'
-          );
-        } else {
-          Alert.alert('Success', 'Address saved successfully!');
-        }
+        Alert.alert('Success', 'Address saved successfully!');
         
         await fetchSavedAddresses();
         
-        // Reset form
         setManualAddress({
           label: 'Home',
           street: '',
@@ -364,23 +280,39 @@ export default function AddressScreen() {
     }
   };
 
-  // ✅ Use Address - Set as default and navigate back if from checkout
-  const useAddress = async (address: SavedAddress) => {
-    setSettingDefault(address._id);
+  const selectAddress = async (address: SavedAddress) => {
+    console.log('🎯 Address selected for:', fromPage, 'Type:', addressType);
+
+    // ✅ Porter request selection - USE CONTEXT
+    if (isFromPorter) {
+      if (addressType === 'pickup') {
+        console.log('✅ Setting pickup address:', address.label);
+        setPickupAddress(address);
+      } else if (addressType === 'delivery') {
+        console.log('✅ Setting delivery address:', address.label);
+        setDeliveryAddress(address);
+      }
+      
+      // ✅ Simply go back - no params needed!
+      router.back();
+      return;
+    }
+
+    // ✅ Checkout selection (existing logic)
+    if (isFromCheckout) {
+      setSettingDefault(address._id);
+      
+      try {
+        const response = await authenticatedFetch(
+          `${API_ENDPOINTS.USER_ADDRESS}/${address._id}/set-default`,
+          {
+            method: 'POST',
+          }
+        );
     
-    try {
-      const response = await authenticatedFetch(
-        `${API_ENDPOINTS.USER_ADDRESS}/${address._id}/set-default`,
-        {
-          method: 'POST',
-        }
-      );
-  
-      if (response.ok) {
-        setSelectedAddress(address);
-        
-        if (isFromCheckout) {
-          // Navigate back to checkout with address data
+        if (response.ok) {
+          setSelectedAddress(address);
+          
           const fullAddress = `${address.street}, ${address.city}, ${address.state}, ${address.pincode}`;
           
           Alert.alert(
@@ -413,15 +345,32 @@ export default function AddressScreen() {
             ]
           );
         } else {
-          // Just set as default
-          Alert.alert('Success', `${address.label} is now your default address`);
-          await fetchSavedAddresses();
+          Alert.alert('Error', 'Failed to set default address');
         }
+      } catch (error) {
+        console.error('Error setting default address:', error);
+        Alert.alert('Error', 'Network error. Please try again.');
+      } finally {
+        setSettingDefault(null);
+      }
+      return;
+    }
+
+    // ✅ Normal mode - just set as default
+    setSettingDefault(address._id);
+    try {
+      const response = await authenticatedFetch(
+        `${API_ENDPOINTS.USER_ADDRESS}/${address._id}/set-default`,
+        { method: 'POST' }
+      );
+
+      if (response.ok) {
+        Alert.alert('Success', `${address.label} is now your default address`);
+        await fetchSavedAddresses();
       } else {
         Alert.alert('Error', 'Failed to set default address');
       }
     } catch (error) {
-      console.error('Error setting default address:', error);
       Alert.alert('Error', 'Network error. Please try again.');
     } finally {
       setSettingDefault(null);
@@ -479,9 +428,7 @@ export default function AddressScreen() {
             try {
               const response = await authenticatedFetch(
                 `${API_ENDPOINTS.USER_ADDRESS}/${addressId}`,
-                {
-                  method: 'DELETE',
-                }
+                { method: 'DELETE' }
               );
 
               if (response.ok) {
@@ -500,7 +447,6 @@ export default function AddressScreen() {
   };
 
   useEffect(() => {
-    console.log('Address screen mounted');
     fetchSavedAddresses();
   }, []);
 
@@ -556,7 +502,7 @@ export default function AddressScreen() {
     );
   };
 
-  // ✅ Render saved address card with "Use Address" button
+  // ✅ Render saved address card
   const renderSavedAddress = ({ item }: { item: SavedAddress }) => {
     const isSettingThisDefault = settingDefault === item._id;
     
@@ -603,70 +549,86 @@ export default function AddressScreen() {
               📱 {item.mobile_number}
             </Text>
           )}
-          {item.latitude && item.longitude && (
-            <Text style={styles.coordsText}>
-              📍 {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
-            </Text>
-          )}
         </TouchableOpacity>
         
-        {/* ✅ Action buttons section */}
+        {/* ✅ Action buttons */}
         <View style={styles.addressActionsContainer}>
-          {/* ✅ Use Address Button - Primary action */}
-          <TouchableOpacity
-            style={[
-              styles.useAddressButton,
-              item.is_default && styles.useAddressButtonDefault,
-              isSettingThisDefault && styles.useAddressButtonLoading
-            ]}
-            onPress={() => useAddress(item)}
-            disabled={isSettingThisDefault}
-          >
-            {isSettingThisDefault ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons 
-                  name={item.is_default ? "checkmark-circle" : "location"} 
-                  size={16} 
-                  color="#fff" 
-                />
-                <Text style={styles.useAddressButtonText}>
-                  {item.is_default ? 'Default Address' : 'Use Address'}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {/* ✅ PRIMARY: Select button for porter/checkout */}
+          {(isFromPorter || isFromCheckout) && (
+            <TouchableOpacity
+              style={styles.selectAddressButton}
+              onPress={() => selectAddress(item)}
+              disabled={isSettingThisDefault}
+            >
+              {isSettingThisDefault ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                  <Text style={styles.selectAddressButtonText}>
+                    {isFromPorter 
+                      ? `Select for ${addressType === 'pickup' ? 'Pickup' : 'Delivery'}`
+                      : 'Use This Address'
+                    }
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* ✅ SECONDARY: Normal mode buttons */}
+          {!isFromPorter && !isFromCheckout && (
+            <TouchableOpacity
+              style={[
+                styles.useAddressButton,
+                item.is_default && styles.useAddressButtonDefault,
+                isSettingThisDefault && styles.useAddressButtonLoading
+              ]}
+              onPress={() => selectAddress(item)}
+              disabled={isSettingThisDefault}
+            >
+              {isSettingThisDefault ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons 
+                    name={item.is_default ? "checkmark-circle" : "location"} 
+                    size={16} 
+                    color="#fff" 
+                  />
+                  <Text style={styles.useAddressButtonText}>
+                    {item.is_default ? 'Default Address' : 'Set as Default'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
           
-          {/* ✅ Secondary action buttons */}
-          <View style={styles.secondaryActions}>
-            {item.latitude && item.longitude && (
+          {/* ✅ Edit/Delete buttons */}
+          {!isFromPorter && !isFromCheckout && (
+            <View style={styles.secondaryActions}>
+              {item.latitude && item.longitude && (
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() => handleGetDirections(item)}
+                >
+                  <Ionicons name="navigate" size={18} color="#007AFF" />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.iconButton}
-                onPress={() => openMapsWithAddress({
-                  latitude: item.latitude,
-                  longitude: item.longitude,
-                  label: item.label,
-                  street: item.street,
-                  city: item.city,
-                })}
+                onPress={() => editAddress(item)}
               >
-                <Ionicons name="navigate" size={18} color="#007AFF" />
+                <Ionicons name="create-outline" size={18} color="#007AFF" />
               </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => editAddress(item)}
-            >
-              <Ionicons name="create-outline" size={18} color="#007AFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => deleteAddress(item._id)}
-            >
-              <Ionicons name="trash-outline" size={18} color="#FF3B30" />
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => deleteAddress(item._id)}
+              >
+                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     );
@@ -684,10 +646,28 @@ export default function AddressScreen() {
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {isFromCheckout ? 'Select Delivery Address' : 'Manage Addresses'}
+            {isFromPorter 
+              ? `Select ${addressType === 'pickup' ? 'Pickup' : 'Delivery'} Address`
+              : isFromCheckout 
+              ? 'Select Delivery Address' 
+              : 'Manage Addresses'
+            }
           </Text>
           <View style={styles.placeholder} />
         </View>
+
+        {/* ✅ Selection mode banner */}
+        {(isFromPorter || isFromCheckout) && (
+          <View style={styles.selectionBanner}>
+            <Ionicons name="information-circle" size={20} color="#007AFF" />
+            <Text style={styles.selectionBannerText}>
+              {isFromPorter 
+                ? `Tap an address to select it for ${addressType || 'delivery'}`
+                : 'Tap an address to use it for your order delivery'
+              }
+            </Text>
+          </View>
+        )}
 
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
@@ -868,18 +848,11 @@ export default function AddressScreen() {
                   </View>
                 </View>
 
-                {latitude && longitude ? (
+                {latitude && longitude && (
                   <View style={styles.coordinatesInfo}>
                     <Ionicons name="location" size={16} color="#4CAF50" />
                     <Text style={styles.coordinatesText}>
-                      ✅ Location coordinates detected: {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.coordinatesInfo}>
-                    <Ionicons name="information-circle" size={16} color="#2196F3" />
-                    <Text style={[styles.coordinatesText, { color: '#1976D2' }]}>
-                      💡 We'll automatically find coordinates for your address to enable directions
+                      ✅ Location coordinates detected
                     </Text>
                   </View>
                 )}
@@ -932,10 +905,7 @@ export default function AddressScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -946,17 +916,28 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  backButton: {
-    padding: 8,
+  backButton: { padding: 8 },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#333', flex: 1, textAlign: 'center' },
+  placeholder: { width: 40 },
+  
+  // ✅ Selection banner
+  selectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#90CAF9',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+  selectionBannerText: {
+    fontSize: 14,
+    color: '#0277BD',
+    fontWeight: '500',
+    flex: 1,
   },
-  placeholder: {
-    width: 40,
-  },
+  
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -972,25 +953,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  activeTab: {
-    borderBottomColor: '#007AFF',
-  },
-  tabText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  activeTabText: {
-    color: '#007AFF',
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  locationSection: {
-    marginBottom: 20,
-  },
+  activeTab: { borderBottomColor: '#007AFF' },
+  tabText: { fontSize: 14, color: '#666', marginLeft: 6, fontWeight: '500' },
+  activeTabText: { color: '#007AFF', fontWeight: '600' },
+  content: { flex: 1 },
+  locationSection: { marginBottom: 20 },
   locationContainer: {
     height: 200,
     borderRadius: 12,
@@ -1004,37 +971,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  locationLoadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#666',
-  },
+  locationLoadingText: { marginTop: 12, fontSize: 14, color: '#666' },
   locationInfo: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
-  locationTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#007AFF',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  locationSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  locationAddress: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
+  locationTitle: { fontSize: 18, fontWeight: '600', color: '#007AFF', marginTop: 12, marginBottom: 8 },
+  locationSubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 16 },
+  locationAddress: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 16, paddingHorizontal: 20 },
   locationCoords: {
     fontSize: 12,
     color: '#999',
@@ -1049,12 +995,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
   },
-  updateLocationText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
+  updateLocationText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 8 },
   detectLocationButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1063,26 +1004,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
   },
-  detectLocationText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  savedAddressesContainer: {
-    padding: 16,
-  },
+  detectLocationText: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 8 },
+  savedAddressesContainer: { padding: 16 },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#333' },
   addressCount: {
     fontSize: 12,
     color: '#666',
@@ -1103,67 +1033,42 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
     backgroundColor: '#f0f8ff',
   },
-  addressContent: {
-    padding: 16,
-  },
+  addressContent: { padding: 16 },
   savedAddressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  addressLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  addressLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginLeft: 8,
-  },
-  defaultBadge: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  defaultText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  savedAddressText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 18,
-    marginBottom: 4,
-  },
-  landmarkText: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  mobileText: {
-    fontSize: 12,
-    color: '#007AFF',
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  coordsText: {
-    fontSize: 11,
-    color: '#4CAF50',
-    marginTop: 4,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  // ✅ New styles for action buttons layout
+  addressLabelContainer: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  addressLabel: { fontSize: 16, fontWeight: '600', color: '#333', marginLeft: 8 },
+  defaultBadge: { backgroundColor: '#4CAF50', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 8 },
+  defaultText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  savedAddressText: { fontSize: 14, color: '#666', lineHeight: 18, marginBottom: 4 },
+  landmarkText: { fontSize: 12, color: '#999', marginTop: 4, fontStyle: 'italic' },
+  mobileText: { fontSize: 12, color: '#007AFF', marginTop: 4, fontWeight: '500' },
+  
+  // ✅ Action buttons
   addressActionsContainer: {
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
     padding: 12,
+  },
+  selectAddressButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  selectAddressButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   useAddressButton: {
     flexDirection: 'row',
@@ -1175,18 +1080,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
   },
-  useAddressButtonDefault: {
-    backgroundColor: '#4CAF50',
-  },
-  useAddressButtonLoading: {
-    backgroundColor: '#999',
-  },
-  useAddressButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
-  },
+  useAddressButtonDefault: { backgroundColor: '#4CAF50' },
+  useAddressButtonLoading: { backgroundColor: '#999' },
+  useAddressButtonText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 6 },
   secondaryActions: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1199,61 +1095,18 @@ const styles = StyleSheet.create({
     minWidth: 40,
     alignItems: 'center',
   },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 24,
-  },
-  addFirstAddressButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  addFirstAddressText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  addAddressContainer: {
-    padding: 16,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
-  },
-  manualFormSection: {
-    marginTop: 20,
-  },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  labelButtonsContainer: {
-    flexDirection: 'row',
-  },
+  emptyContainer: { alignItems: 'center', paddingVertical: 48 },
+  emptyText: { fontSize: 18, color: '#666', marginBottom: 8, marginTop: 16 },
+  emptySubtext: { fontSize: 14, color: '#999', marginBottom: 24 },
+  addFirstAddressButton: { backgroundColor: '#007AFF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 },
+  addFirstAddressText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  addAddressContainer: { padding: 16 },
+  sectionSubtitle: { fontSize: 14, color: '#666', marginBottom: 16 },
+  manualFormSection: { marginTop: 20 },
+  formTitle: { fontSize: 16, fontWeight: '600', color: '#333', marginBottom: 16 },
+  inputGroup: { marginBottom: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
+  labelButtonsContainer: { flexDirection: 'row' },
   labelButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -1262,26 +1115,10 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     marginRight: 8,
   },
-  labelButtonSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  labelButtonText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  labelButtonTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
+  labelButtonSelected: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
+  labelButtonText: { fontSize: 14, color: '#666' },
+  labelButtonTextSelected: { color: '#fff', fontWeight: '600' },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
   textInput: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -1292,10 +1129,7 @@ const styles = StyleSheet.create({
     minHeight: 60,
     textAlignVertical: 'top',
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
+  row: { flexDirection: 'row', alignItems: 'flex-start' },
   coordinatesInfo: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1306,44 +1140,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C8E6C9',
   },
-  coordinatesText: {
-    fontSize: 12,
-    color: '#2E7D32',
-    marginLeft: 8,
-    flex: 1,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    marginTop: 20,
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    flex: 1,
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginLeft: 12,
-    flex: 1,
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  coordinatesText: { fontSize: 12, color: '#2E7D32', marginLeft: 8, flex: 1 },
+  buttonContainer: { flexDirection: 'row', marginTop: 20 },
+  saveButton: { backgroundColor: '#007AFF', padding: 16, borderRadius: 8, alignItems: 'center', flex: 1 },
+  saveButtonDisabled: { backgroundColor: '#ccc' },
+  saveButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  cancelButton: { backgroundColor: '#f0f0f0', padding: 16, borderRadius: 8, alignItems: 'center', marginLeft: 12, flex: 1 },
+  cancelButtonText: { color: '#666', fontSize: 16, fontWeight: '600' },
   limitWarning: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1354,11 +1157,5 @@ const styles = StyleSheet.create({
     borderColor: '#FFEAA7',
     marginTop: 16,
   },
-  limitWarningText: {
-    fontSize: 14,
-    color: '#856404',
-    marginLeft: 8,
-    flex: 1,
-    lineHeight: 18,
-  },
+  limitWarningText: { fontSize: 14, color: '#856404', marginLeft: 8, flex: 1, lineHeight: 18 },
 });
