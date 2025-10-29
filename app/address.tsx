@@ -130,7 +130,7 @@ export default function AddressScreen() {
       }
 
       // Reverse geocode to get address
-      await getAddressFromCoordinates(lat, lng);
+      // await getAddressFromCoordinates(lat, lng);
       
     } catch (error) {
       console.error('📍 Location error:', error);
