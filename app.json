@@ -60,6 +60,7 @@
         "ACCESS_COARSE_LOCATION",
         "INTERNET"
       ],
+      "usesCleartextTraffic": true,
       "package": "com.ios.smartbag"
     },
     "web": {
@@ -76,6 +77,14 @@
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.1029983278193-mgl5t7mtqajk2a3vocs6qchbir317o9q"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ],
       "expo-router",
