@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,67 @@ const DIMENSION_CATEGORIES = [
   { id: '4', label: 'More than 50 cm', value: '> 50 cm' },
 ];
 
+// Helper function to get numeric value from dimension category
+const getDimensionNumericValue = (dimension: string): number => {
+  switch (dimension) {
+    case '< 10 cm': return 7.5;
+    case '10-20 cm': return 15;
+    case '20-50 cm': return 35;
+    case '> 50 cm': return 60;
+    default: return 0;
+  }
+};
+
+// Helper function to get numeric value from weight category
+const getWeightNumericValue = (weight: string): number => {
+  switch (weight) {
+    case '< 0.5 kg': return 0.3;
+    case '0.5-1 kg': return 0.75;
+    case '1-2 kg': return 1.5;
+    case '> 2 kg': return 2.5;
+    default: return 0;
+  }
+};
+
+// Calculate estimated price based on volumetric weight
+const calculateEstimatedPrice = (
+  length: string | null,
+  breadth: string | null,
+  height: string | null,
+  weight: string | null,
+  isUrgent: boolean
+): number | null => {
+  if (!length || !breadth || !height || !weight) {
+    return null;
+  }
+
+  const l = getDimensionNumericValue(length);
+  const b = getDimensionNumericValue(breadth);
+  const h = getDimensionNumericValue(height);
+  const w = getWeightNumericValue(weight);
+
+  // Calculate volumetric weight (L x B x H / 5000)
+  const volumetricWeight = (l * b * h) / 5000;
+  
+  // Use the higher of actual weight or volumetric weight
+  const chargeableWeight = Math.max(volumetricWeight, w);
+
+  // Price tiers based on chargeable weight
+  let basePrice = 0;
+  if (chargeableWeight <= 0.5) {
+    basePrice = 50;
+  } else if (chargeableWeight <= 1.0) {
+    basePrice = 70;
+  } else if (chargeableWeight <= 2.0) {
+    basePrice = 80;
+  } else {
+    basePrice = 100;
+  }
+
+  // Add ₹20 if urgent delivery is selected
+  return isUrgent ? basePrice + 20 : basePrice;
+};
+
 export default function CreatePorterRequestScreen() {
   const { token } = useAuth();
   const { pickupAddress, deliveryAddress, clearAddresses } = usePorterRequest();
@@ -43,6 +104,19 @@ export default function CreatePorterRequestScreen() {
   const [selectedWeight, setSelectedWeight] = useState<string | null>(null);
   const [urgent, setUrgent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
+
+  // Calculate estimated price whenever dimensions or weight changes
+  useEffect(() => {
+    const price = calculateEstimatedPrice(
+      selectedLength,
+      selectedBreadth,
+      selectedHeight,
+      selectedWeight,
+      urgent
+    );
+    setEstimatedPrice(price);
+  }, [selectedLength, selectedBreadth, selectedHeight, selectedWeight, urgent]);
 
   const handleSelectPickupAddress = () => {
     router.push({
@@ -157,6 +231,7 @@ export default function CreatePorterRequestScreen() {
         weight_category: selectedWeight,
         estimated_distance: parseFloat(distance),
         urgent: urgent,
+        estimated_cost: estimatedPrice,
       };
 
       console.log('📤 Submitting porter request:', JSON.stringify(requestData, null, 2));
@@ -404,6 +479,25 @@ export default function CreatePorterRequestScreen() {
           </View>
         </View>
 
+        {estimatedPrice !== null && (
+          <View style={styles.section}>
+            <View style={styles.estimatedPriceContainer}>
+              <View style={styles.estimatedPriceHeader}>
+                <Ionicons name="pricetag" size={24} color="#34C759" />
+                <Text style={styles.estimatedPriceTitle}>Estimated Price</Text>
+              </View>
+              <View style={styles.estimatedPriceAmount}>
+                <Text style={styles.rupeeSymbol}>₹</Text>
+                <Text style={styles.priceValue}>{estimatedPrice}</Text>
+              </View>
+              <Text style={styles.estimatedPriceNote}>
+                * This is an approximate estimate. Final cost may vary.
+                {urgent && ' (+₹20 for urgent delivery)'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <TouchableOpacity
             style={styles.urgentOption}
@@ -616,6 +710,46 @@ const styles = StyleSheet.create({
   },
   weightLabel: { fontSize: 15, color: '#333' },
   weightLabelSelected: { fontWeight: '600', color: '#007AFF' },
+  
+  estimatedPriceContainer: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#34C759',
+  },
+  estimatedPriceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  estimatedPriceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  estimatedPriceAmount: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 8,
+  },
+  rupeeSymbol: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#34C759',
+    marginRight: 4,
+  },
+  priceValue: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#34C759',
+  },
+  estimatedPriceNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
   
   urgentOption: {
     flexDirection: 'row',
