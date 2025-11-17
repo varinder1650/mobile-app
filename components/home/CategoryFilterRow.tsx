@@ -76,6 +76,18 @@ const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
           );
         })}
         
+        {/* ✅ NEW: Printouts Button */}
+        <TouchableOpacity 
+          key="printouts-service"
+          onPress={() => router.push('/create-printout-order')}
+          style={{ alignItems: 'center', marginHorizontal: 8 }}
+        >
+          <View style={styles.printoutsIconContainer}>
+            <Ionicons name="print" size={24} color="#8E44AD" />
+          </View>
+          <Text style={styles.printoutsLabel}>Print{'\n'}Service</Text>
+        </TouchableOpacity>
+        
         {/* Request Product Button */}
         <TouchableOpacity 
           key="request-product"
@@ -88,7 +100,7 @@ const CategoryFilterRow: React.FC<CategoryFilterRowProps> = ({
           <Text style={styles.requestProductLabel}>Request{'\n'}Product</Text>
         </TouchableOpacity>
 
-        {/* ✅ NEW: Porter Request Button */}
+        {/* Porter Request Button */}
         <TouchableOpacity 
           key="request-porter"
           onPress={() => router.push('/create-porter-request')}
