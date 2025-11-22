@@ -24,6 +24,9 @@ export interface ProductImage {
     };
     stock: number;
     status: string;
+    allow_user_description: boolean;
+    user_description: string;
+    mrp: number;
   }
   
   export interface Category {

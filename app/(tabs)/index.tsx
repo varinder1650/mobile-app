@@ -1,4 +1,3 @@
-// app/(tabs)/index.tsx - FIXED VERSION (No confirmation dialogs)
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
@@ -370,7 +369,7 @@ const HomeScreen = () => {
         token={token}
       />
       
-      {/* ✅ Shop Closed Banner - Just shows info, doesn't block */}
+      {/* ✅ Shop Closed Banner */}
       {shopStatus && !shopStatus.is_open && (
         <ShopClosedBanner 
           reason={shopStatus.reason}
@@ -405,11 +404,7 @@ const HomeScreen = () => {
           )}
           keyExtractor={(item, index) => `grid-product-${item.id || index}-${index}`}
           numColumns={2}
-          getItemLayout={(data, index) => ({
-            length: 280,
-            offset: 280 * Math.floor(index / 2),
-            index,
-          })}
+          columnWrapperStyle={{ paddingHorizontal: 8 }}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', marginTop: 32 }}>
               <Text style={{ color: '#888', fontSize: 16 }}>No products found.</Text>
@@ -422,7 +417,7 @@ const HomeScreen = () => {
             />
           )}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 180 }}
+          contentContainerStyle={{ paddingTop: 16, paddingBottom: 180 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -432,7 +427,7 @@ const HomeScreen = () => {
             />
           }
           removeClippedSubviews={true}
-          initialNumToRender={8}
+          initialNumToRender={10}
           maxToRenderPerBatch={6}
           windowSize={5}
           updateCellsBatchingPeriod={50}

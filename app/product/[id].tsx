@@ -1,4 +1,3 @@
-// product/[id].tsx - OPTIMIZED VERSION
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -11,12 +10,16 @@ import {
   Dimensions,
   ActivityIndicator,
   FlatList,
+  TextInput,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { API_BASE_URL, IMAGE_BASE_URL, API_ENDPOINTS } from '../../config/apiConfig';
 import { useAuth } from '../../contexts/AuthContext';
-import { useCart } from '../../contexts/CartContext'; // ✅ Use CartContext
+import { useCart } from '../../contexts/CartContext';
+import { authenticatedFetch } from '../../utils/authenticatedFetch';
 
 const { width } = Dimensions.get('window');
 const DEBUG = __DEV__;
@@ -40,17 +43,19 @@ interface Product {
   stock: number;
   status: string;
   keywords?: string[];
+  allow_user_images?: boolean;
+  allow_user_description?: boolean;
 }
 
 export default function ProductDetailScreen() {
   const localParams = useLocalSearchParams();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { 
     cartCount, 
     cartQuantities,
     addToCart: addToCartContext,
     updateQuantity: updateCartQuantityContext,
-  } = useCart(); // ✅ Use CartContext
+  } = useCart();
   
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,23 +63,27 @@ export default function ProductDetailScreen() {
   const [showCartNotification, setShowCartNotification] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   
+  // ✅ User upload states
+  const [showImageUpload, setShowImageUpload] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [userReview, setUserReview] = useState('');
+  const [uploading, setUploading] = useState(false);
+  
   const flatListRef = useRef<FlatList>(null);
   const isFetching = useRef(false);
   const productIdRef = useRef<string | null>(null);
 
-  // ✅ Memoized product ID extraction
   const productId = useMemo(() => {
     const id = localParams.id || localParams.productId;
     return Array.isArray(id) ? id[0] : (id as string);
   }, [localParams.id, localParams.productId]);
 
-  // ✅ Get cart quantity for this product from context
   const cartQuantity = useMemo(() => {
     if (!product) return 0;
     return cartQuantities[product.id] || 0;
   }, [product, cartQuantities]);
 
-  // ✅ Optimized fetch with caching
   const fetchProduct = useCallback(async (id: string) => {
     if (isFetching.current || productIdRef.current === id && product) {
       if (DEBUG) console.log('⏭️ Product already loaded or fetching');
@@ -129,7 +138,6 @@ export default function ProductDetailScreen() {
     }
   }, [productId, fetchProduct]);
 
-  // ✅ Memoized image processing
   const imageUrls = useMemo(() => {
     if (!product || !product.images || product.images.length === 0) {
       return ['https://via.placeholder.com/400x300?text=No+Image'];
@@ -149,7 +157,152 @@ export default function ProductDetailScreen() {
     });
   }, [product?.images]);
 
-  // ✅ Optimized add to cart
+  // ✅ Handle image upload
+  const handleImageUpload = async () => {
+    if (!token) {
+      Alert.alert('Login Required', 'Please login to upload images');
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to your photos');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploadedImage(result.assets[0].uri);
+        setShowImageUpload(true);
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const handleCameraCapture = async () => {
+    if (!token) {
+      Alert.alert('Login Required', 'Please login to upload images');
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow camera access');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploadedImage(result.assets[0].uri);
+        setShowImageUpload(true);
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Error', 'Failed to capture image');
+    }
+  };
+
+  const submitUserImage = async () => {
+    if (!uploadedImage || !product) return;
+
+    setUploading(true);
+    try {
+      // Convert image to base64
+      const response = await fetch(uploadedImage);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+        
+        try {
+          const uploadResponse = await authenticatedFetch(
+            `${API_BASE_URL}/products/${product.id}/user-image`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                image: base64data,
+                user_id: user?.id,
+              }),
+            }
+          );
+
+          if (uploadResponse.ok) {
+            Alert.alert('Success', 'Your image has been uploaded!');
+            setShowImageUpload(false);
+            setUploadedImage(null);
+          } else {
+            Alert.alert('Error', 'Failed to upload image');
+          }
+        } catch (error) {
+          Alert.alert('Error', 'Failed to upload image');
+        } finally {
+          setUploading(false);
+        }
+      };
+      
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.error('Upload error:', error);
+      Alert.alert('Error', 'Failed to process image');
+      setUploading(false);
+    }
+  };
+
+  const submitUserReview = async () => {
+    if (!userReview.trim() || !product) return;
+
+    setUploading(true);
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/products/${product.id}/user-review`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            review: userReview.trim(),
+            user_id: user?.id,
+            user_name: user?.name,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        Alert.alert('Success', 'Your review has been submitted!');
+        setShowReviewModal(false);
+        setUserReview('');
+      } else {
+        Alert.alert('Error', 'Failed to submit review');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to submit review');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const addToCart = useCallback(async () => {
     if (!token) {
       Alert.alert(
@@ -181,7 +334,6 @@ export default function ProductDetailScreen() {
     setAddingToCart(false);
   }, [token, product, addToCartContext]);
 
-  // ✅ Optimized quantity update
   const updateCartQuantity = useCallback(async (newQuantity: number) => {
     if (!product) return;
 
@@ -205,7 +357,6 @@ export default function ProductDetailScreen() {
     router.push('/(tabs)/explore');
   }, [token]);
 
-  // ✅ Memoized handlers
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
       setCurrentImageIndex(viewableItems[0].index || 0);
@@ -244,7 +395,6 @@ export default function ProductDetailScreen() {
     );
   }, [imageUrls.length, currentImageIndex]);
 
-  // ✅ Memoized cart button
   const renderCartButton = useCallback(() => {
     const isOutOfStock = product?.stock === 0;
 
@@ -385,12 +535,151 @@ export default function ProductDetailScreen() {
             <Text style={styles.detailValue}>{product.brand?.name || 'N/A'}</Text>
           </View>
         </View>
+
+        {/* ✅ USER INTERACTION SECTION - Conditional */}
+        {(product.allow_user_images || product.allow_user_description) && token && (
+          <View style={styles.userInteractionSection}>
+            <Text style={styles.interactionTitle}>Share Your Experience</Text>
+            
+            {product.allow_user_images && (
+              <View style={styles.interactionButtons}>
+                <TouchableOpacity
+                  style={styles.interactionButton}
+                  onPress={() => {
+                    Alert.alert(
+                      'Upload Photo',
+                      'Choose photo source',
+                      [
+                        { text: 'Camera', onPress: handleCameraCapture },
+                        { text: 'Gallery', onPress: handleImageUpload },
+                        { text: 'Cancel', style: 'cancel' },
+                      ]
+                    );
+                  }}
+                >
+                  <Ionicons name="camera" size={20} color="#007AFF" />
+                  <Text style={styles.interactionButtonText}>Upload Photo</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {product.allow_user_description && (
+              <View style={styles.interactionButtons}>
+                <TouchableOpacity
+                  style={styles.interactionButton}
+                  onPress={() => setShowReviewModal(true)}
+                >
+                  <Ionicons name="create" size={20} color="#007AFF" />
+                  <Text style={styles.interactionButtonText}>Write Review</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
       {/* Cart Button */}
       <View style={styles.buttonContainer}>
         {renderCartButton()}
       </View>
+
+      {/* ✅ IMAGE UPLOAD MODAL */}
+      <Modal
+        visible={showImageUpload}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowImageUpload(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Upload Product Photo</Text>
+              <TouchableOpacity onPress={() => setShowImageUpload(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {uploadedImage && (
+              <Image source={{ uri: uploadedImage }} style={styles.uploadPreview} />
+            )}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowImageUpload(false);
+                  setUploadedImage(null);
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitButton, uploading && styles.disabledButton]}
+                onPress={submitUserImage}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalSubmitText}>Upload</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✅ REVIEW MODAL */}
+      <Modal
+        visible={showReviewModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReviewModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Write Your Review</Text>
+              <TouchableOpacity onPress={() => setShowReviewModal(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.reviewInput}
+              placeholder="Share your thoughts about this product..."
+              value={userReview}
+              onChangeText={setUserReview}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowReviewModal(false);
+                  setUserReview('');
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitButton, (uploading || !userReview.trim()) && styles.disabledButton]}
+                onPress={submitUserReview}
+                disabled={uploading || !userReview.trim()}
+              >
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalSubmitText}>Submit</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Cart Notification */}
       {showCartNotification && (
@@ -433,6 +722,111 @@ const styles = StyleSheet.create({
   detailsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f8f9fa' },
   detailLabel: { fontSize: 16, fontWeight: '600', color: '#333', flex: 1 },
   detailValue: { fontSize: 16, color: '#666', flex: 2, textAlign: 'right' },
+  
+  // ✅ User Interaction Section
+  userInteractionSection: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: '#F0F8FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  interactionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+  },
+  interactionButtons: {
+    marginTop: 8,
+  },
+  interactionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+    marginBottom: 8,
+  },
+  interactionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginLeft: 8,
+  },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+  },
+  uploadPreview: {
+    width: '100%',
+    height: 250,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  reviewInput: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minHeight: 150,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  modalSubmitButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalSubmitText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  
   buttonContainer: { padding: 16, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff' },
   addToCartButton: { backgroundColor: '#007AFF', padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: '#007AFF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
   outOfStockButton: { backgroundColor: '#f5f5f5', shadowOpacity: 0, elevation: 0, borderWidth: 1, borderColor: '#e0e0e0' },

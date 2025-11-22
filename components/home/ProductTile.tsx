@@ -1,3 +1,4 @@
+// components/home/ProductTile.tsx - WITH ADD BUTTON ON THUMBNAIL
 import React, { memo, useCallback } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -138,14 +139,28 @@ const ProductTile = memo<ProductTileProps>(({
         >
           {item.brand?.name || 'Unknown'}
         </Text>
-        <Text 
-          style={[
-            homeStyles.productTilePrice,
-            isOutOfStock && homeStyles.dimmedPrice,
-          ]}
-        >
-          ₹{item.price.toFixed(2)}
-        </Text>
+        
+        {/* ✅ Price Display - MRP strikethrough + Selling Price + Discount Badge */}
+        <View style={styles.priceRow}>
+          {item.mrp && item.mrp > item.price && (
+            <Text style={styles.mrpPrice}>₹{Math.round(item.mrp)}</Text>
+          )}
+          <Text 
+            style={[
+              styles.sellingPrice,
+              isOutOfStock && homeStyles.dimmedPrice,
+            ]}
+          >
+            ₹{Math.round(item.price)}
+          </Text>
+        </View>
+        {item.mrp && item.mrp > item.price && (
+          <View style={styles.discountBadge}>
+            <Text style={styles.discountText}>
+              {Math.round(((item.mrp - item.price) / item.mrp) * 100)}% OFF
+            </Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
