@@ -131,7 +131,7 @@ export const styles = StyleSheet.create({
   // Category Filter Row
   categoryFilterRow: {
     backgroundColor: '#fff',
-    paddingVertical: 12,
+    paddingVertical: 10,
     marginBottom: 8,
   },
   categoryIconContainer: {
@@ -144,8 +144,8 @@ export const styles = StyleSheet.create({
     marginBottom: 4,
   },
   categoryIcon: {
-    width: 32,
-    height: 32,
+    width: 45,
+    height: 45,
     borderRadius: 16,
   },
   categoryUberSelected: {
@@ -230,7 +230,7 @@ export const styles = StyleSheet.create({
   
   // Product Tiles - More compact
   productTile: {
-    width: (width - 48) / 2.5,
+    width: 100,
     backgroundColor: '#fff',
     borderRadius: 12,
     marginHorizontal: 6,
@@ -244,7 +244,7 @@ export const styles = StyleSheet.create({
   },
   productTileImage: {
     width: '100%',
-    height: 120,
+    height: 80,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     backgroundColor: '#f5f5f5',
@@ -272,11 +272,11 @@ export const styles = StyleSheet.create({
   
   // Product Cards - For category sections
   productCard: {
-    width: 130,
+    width: 100,
     backgroundColor: '#fff',
     borderRadius: 12,
     marginHorizontal: 6,
-    marginBottom: 16,
+    marginBottom: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -286,7 +286,7 @@ export const styles = StyleSheet.create({
   },
   productCardImage: {
     width: '100%',
-    height: 110,
+    height: 80,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     backgroundColor: '#f5f5f5',
