@@ -30,6 +30,7 @@
       "bundleIdentifier": "com.ios.smartbag",
       "icon": "./assets/icon1.png",
       "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"],
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to help you select your delivery address.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to help you select your delivery address.",
         "NSAppTransportSecurity": {
@@ -58,8 +59,10 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "INTERNET"
+        "INTERNET",
+        "NOTIFICATIONS"
       ],
+      "useNextNotificationsApi": true,
       "usesCleartextTraffic": true,
       "package": "com.ios.smartbag"
     },
@@ -67,6 +70,16 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#007AFF"
+        }
+      ],
+      [
+        "@maplibre/maplibre-react-native"
+      ],
       [
         "expo-location",
         {

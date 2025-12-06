@@ -1,10 +1,9 @@
-// (tabs)/explore.tsx - OPTIMIZED CART SCREEN
 import React, { useState, useCallback } from 'react';
 import { router } from 'expo-router';
 import { View, FlatList, Alert, ActivityIndicator, RefreshControl, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
-import { useCart } from '../../contexts/CartContext'; // ✅ Use CartContext
+import { useCart } from '../../contexts/CartContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { styles } from '../../styles/cart.styles';
 

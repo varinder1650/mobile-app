@@ -1,4 +1,3 @@
-// components/home/ProductTile.tsx - WITH ADD BUTTON ON THUMBNAIL
 import React, { memo, useCallback } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -183,7 +182,6 @@ ProductTile.displayName = 'ProductTile';
 
 export default ProductTile;
 
-// ✅ NEW STYLES FOR OVERLAY BUTTON
 const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
