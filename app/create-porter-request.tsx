@@ -207,14 +207,14 @@ export default function CreatePorterRequestScreen() {
     try {
       const requestData = {
         pickup_address: {
-          address: pickupAddress.street || pickupAddress.address || '',
+          address: pickupAddress.street || '',
           city: pickupAddress.city || '',
           pincode: pickupAddress.pincode || '',
           latitude: pickupAddress.latitude || null,
           longitude: pickupAddress.longitude || null,
         },
         delivery_address: {
-          address: deliveryAddress.street || deliveryAddress.address || '',
+          address: deliveryAddress.street || '',
           city: deliveryAddress.city || '',
           pincode: deliveryAddress.pincode || '',
           latitude: deliveryAddress.latitude || null,
@@ -236,35 +236,35 @@ export default function CreatePorterRequestScreen() {
 
       console.log('📤 Submitting porter request:', JSON.stringify(requestData, null, 2));
 
-      if (requestData.pickup_address.address.length < 10) {
-        Alert.alert('Error', 'Pickup address must be at least 10 characters');
-        setSubmitting(false);
-        return;
-      }
+      // if (requestData.pickup_address.address.length < 10) {
+      //   Alert.alert('Error', 'Pickup address must be at least 10 characters');
+      //   setSubmitting(false);
+      //   return;
+      // }
 
-      if (requestData.delivery_address.address.length < 10) {
-        Alert.alert('Error', 'Delivery address must be at least 10 characters');
-        setSubmitting(false);
-        return;
-      }
+      // if (requestData.delivery_address.address.length < 10) {
+      //   Alert.alert('Error', 'Delivery address must be at least 10 characters');
+      //   setSubmitting(false);
+      //   return;
+      // }
 
-      if (requestData.pickup_address.pincode.length !== 6) {
-        Alert.alert('Error', 'Pickup pincode must be exactly 6 digits');
-        setSubmitting(false);
-        return;
-      }
+      // if (requestData.pickup_address.pincode.length !== 6) {
+      //   Alert.alert('Error', 'Pickup pincode must be exactly 6 digits');
+      //   setSubmitting(false);
+      //   return;
+      // }
 
-      if (requestData.delivery_address.pincode.length !== 6) {
-        Alert.alert('Error', 'Delivery pincode must be exactly 6 digits');
-        setSubmitting(false);
-        return;
-      }
+      // if (requestData.delivery_address.pincode.length !== 6) {
+      //   Alert.alert('Error', 'Delivery pincode must be exactly 6 digits');
+      //   setSubmitting(false);
+      //   return;
+      // }
 
-      if (requestData.phone.length < 10) {
-        Alert.alert('Error', 'Phone number must be at least 10 digits');
-        setSubmitting(false);
-        return;
-      }
+      // if (requestData.phone.length < 10) {
+      //   Alert.alert('Error', 'Phone number must be at least 10 digits');
+      //   setSubmitting(false);
+      //   return;
+      // }
 
       const response = await authenticatedFetch(
         `${API_BASE_URL}/porter/porter-requests`,
@@ -285,22 +285,41 @@ export default function CreatePorterRequestScreen() {
         
         clearAddresses();
         
-        Alert.alert(
-          'Success! 📦',
-          'Your porter request has been submitted. You will receive a notification once the estimated cost is available.',
-          [
-            {
-              text: 'View Request',
-              onPress: () => {
-                router.replace({
-                  pathname: '/orders',
-                  params: { tab: 'porter' }
-                });
-              },
-            },
-          ],
-          { cancelable: false }
-        );
+        if (responseData.redirect_to_checkout){
+          router.replace({
+            pathname: '/checkout',
+            params: {
+              orderType: 'porter',
+              requestId: responseData.request_id,
+              estimatedCost: responseData.estimated_cost.toString(),
+              porterData: JSON.stringify({
+                pickup_address: requestData.pickup_address,
+                delivery_address: requestData.delivery_address,
+                description: requestData.description,
+                dimensions: requestData.dimensions,
+                weight_category: requestData.weight_category,
+                urgent: requestData.urgent,
+                estimated_distance: requestData.estimated_distance,
+              })
+            }
+          });
+        }
+        // Alert.alert(
+        //   'Success! 📦',
+        //   'Your porter request has been submitted. You will receive a notification once the estimated cost is available.',
+        //   [
+        //     {
+        //       text: 'View Request',
+        //       onPress: () => {
+        //         router.replace({
+        //           pathname: '/orders',
+        //           params: { tab: 'porter' }
+        //         });
+        //       },
+        //     },
+        //   ],
+        //   { cancelable: false }
+        // );
       } else {
         const errorData = await response.json();
         console.error('❌ Error response:', errorData);

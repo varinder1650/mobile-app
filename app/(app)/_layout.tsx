@@ -41,6 +41,15 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="printouts"
+        options={{
+          title: 'Print',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'print' : 'print-outline'} color={color} size={24} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',

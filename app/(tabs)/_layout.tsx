@@ -88,6 +88,13 @@ export default function TabLayout() {
             }}
           />
           <Tabs.Screen
+            name="printouts"
+            options={{
+              title: 'Print',
+              tabBarIcon: ({ color }) => <Ionicons name="print-outline" size={24} color={color} />, 
+            }}
+          />
+          <Tabs.Screen
             name="profile"
             options={{
               title: 'Profile',

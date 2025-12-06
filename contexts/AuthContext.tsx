@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
+import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import {
   API_BASE_URL,
@@ -42,6 +45,7 @@ interface AuthContextType {
   verifyPhone: (phone: string, code: string) => Promise<VerificationResult>;
   logout: () => Promise<void>;
   updateProfile: (updatedData: UpdateProfileData) => Promise<UpdateProfileResult>;
+  handleTokenStorage?: (accessToken: string, refreshToken: string) => Promise<boolean>;
   refreshToken: () => Promise<boolean>;
   reloadAuth: () => Promise<void>;
 }
@@ -90,23 +94,38 @@ interface UpdateProfileResult {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshTokenValue, setRefreshTokenValue] = useState<string | null>(null);
+  const [expoPushToken, setExpoPushToken] = useState<string | undefined>();
+
+  // ✅ Register for push notifications when user logs in
+  useEffect(() => {
+    if (user && token) {
+      registerForPushNotificationsAsync().then(async (pushToken) => {
+        if (pushToken) {
+          setExpoPushToken(pushToken);
+          
+          // Save token to backend
+          try {
+            await fetch(`${API_BASE_URL}/users/push-token`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ push_token: pushToken }),
+            });
+            console.log('✅ Push token saved to backend');
+          } catch (error) {
+            console.error('Failed to save push token:', error);
+          }
+        }
+      });
+    }
+  }, [user, token]);
 
   useEffect(() => {
     loadStoredAuth();
@@ -217,20 +236,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               );
               console.log('✅ User profile fetched and stored');
             } else {
-              // ✅ Token invalid, clear everything
               console.log('❌ Token invalid, clearing auth');
               await clearAuth();
             }
           } catch (profileError) {
             console.error('Failed to fetch profile on load:', profileError);
-            // ✅ Clear auth on profile fetch failure
             await clearAuth();
           }
         }
       }
     } catch (error) {
       console.error('Error loading stored auth:', error);
-      // ✅ Clear auth on error
       await clearAuth();
     } finally {
       console.log('✅ Auth loading complete, setting loading to false');
@@ -275,11 +291,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: errorMessage };
       }
   
-      // ✅ Store authentication data securely
       await secureStorage.storeAuthData(
         data.access_token,
         data.refresh_token,
-        null  // Will fetch user data next
+        null
       );
   
       console.log("Access token stored");
@@ -287,7 +302,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setToken(data.access_token);
       setRefreshTokenValue(data.refresh_token);
       
-      // ✅ Fetch user profile
       try {
         const profileResponse = await fetchWithTimeout(
           API_ENDPOINTS.PROFILE,
@@ -367,7 +381,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: errorMessage };
       }
 
-      // Store authentication data if registration includes login
       if (data.access_token) {
         await secureStorage.storeAuthData(
           data.access_token,
@@ -451,7 +464,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           setUser(userData);
           
-          // Store complete auth data
           await secureStorage.storeAuthData(
             data.access_token,
             data.refresh_token,
@@ -461,13 +473,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log('✅ Complete auth data stored');
         } else {
           console.error('❌ Failed to fetch profile, status:', profileResponse.status);
-          // Fallback to basic user info
           const basicUser = {
             _id: userInfo.googleId || userInfo.id || '',
             email: userInfo.email,
             name: userInfo.name,
             id: '',
-            role: 'customer',
+            role: 'customer' as const,
             is_active: true,
           };
 
@@ -480,13 +491,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       } catch (profileError) {
         console.error('❌ Error fetching profile:', profileError);
-        // Set basic user info as fallback
         const basicUser = {
           _id: userInfo.googleId || userInfo.id || '',
           email: userInfo.email,
           name: userInfo.name,
           id: '',
-          role: 'customer',
+          role: 'customer' as const,
           is_active: true,
         };
         
@@ -519,7 +529,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: 'Not authenticated. Please login again.' };
       }
   
-      // Phone validation
       const phoneValidation = InputValidator.validatePhone(phone);
       if (!phoneValidation.isValid) {
         return { success: false, error: phoneValidation.error };
@@ -550,12 +559,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: errorMessage };
       }
   
-      // ✅ Update user data from response
       if (data.user) {
         const updatedUser = data.user;
         setUser(updatedUser);
         
-        // Update stored user data
         await secureStorage.storeAuthData(token, refreshTokenValue ?? undefined, updatedUser);
         
         console.log('✅ User state updated with phone:', updatedUser.phone);
@@ -564,7 +571,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: true, user: updatedUser };
       }
       
-      // ✅ If no user in response, fetch profile
       console.log('⚠️ No user in phone update response, fetching profile...');
       try {
         const profileResponse = await fetchWithTimeout(
@@ -669,7 +675,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: errorMessage };
       }
 
-      // Update user data with verified phone
       if (data.user) {
         setUser(data.user);
         await secureStorage.storeAuthData(token!, refreshTokenValue??undefined, data.user);
@@ -687,7 +692,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('Logging out...');
       
-      // Call logout endpoint if token exists
       if (token) {
         try {
           await fetchWithTimeout(
@@ -719,7 +723,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: 'Not authenticated. Please login again.' };
       }
 
-      // Validate name if provided
       if (updatedData.name) {
         const nameValidation = InputValidator.validateName(updatedData.name);
         if (!nameValidation.isValid) {
@@ -782,13 +785,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         },
         10000
       );
-      console.log("refresh response: ",response)
+      
       if (!response.ok) {
         console.log('Token refresh failed, status:', response.status);
         const errorData = await response.json().catch(() => ({}));
         console.log('Refresh error:', errorData);
         
-        // Only clear auth if it's definitely invalid (401/403)
         if (response.status === 401 || response.status === 403) {
           console.log('🚪 Refresh token invalid, clearing auth');
           await clearAuth();
@@ -801,16 +803,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const data = await response.json();
       console.log('✅ Token refreshed successfully');
       
-      // ✅ UPDATE ONLY ACCESS TOKEN (keep existing refresh token)
       const newAccessToken = data.access_token;
       
       setToken(newAccessToken);
-      // refreshTokenValue stays the same - no update needed
   
-      // ✅ SAVE NEW ACCESS TOKEN WITH EXISTING REFRESH TOKEN
       await secureStorage.storeAuthData(
         newAccessToken,
-        refreshTokenValue, // ✅ Keep the same refresh token
+        refreshTokenValue,
         user
       );
   
@@ -845,4 +844,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };
